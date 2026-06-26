@@ -1,0 +1,6 @@
+---
+deployment:
+  tasks:
+    - export:
+        from: .
+        to: /home/techandc/public_html/mail/
