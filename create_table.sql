@@ -1,0 +1,17 @@
+CREATE DATABASE IF NOT EXISTS github_leads CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE github_leads;
+
+CREATE TABLE IF NOT EXISTS github_leads (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(255),
+    email VARCHAR(255) NOT NULL UNIQUE,
+    location VARCHAR(255),
+    bio TEXT,
+    country VARCHAR(100),
+    source VARCHAR(255),
+    category VARCHAR(100),
+    status VARCHAR(20) NOT NULL DEFAULT 'Pending',
+    sent_at TIMESTAMP NULL DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

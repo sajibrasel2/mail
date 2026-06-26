@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row mb-4">
+  <div class="col-12">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+      <div>
+        <h1 class="h3 mb-1">Campaign Settings</h1>
+        <p class="text-muted mb-0">Edit the daily email campaign template, CTA links, and review recent campaign performance.</p>
+      </div>
+      <div class="d-flex gap-2">
+        <form method="post" action="{{ url_for('campaign_run_now') }}">
+          <button type="submit" class="btn btn-warning">Run Campaign Now</button>
+        </form>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">Back to Dashboard</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row gx-4 gy-4 mb-4">
+  <div class="col-md-4">
+    <div class="card shadow-sm p-3 text-center">
+      <div class="text-uppercase small text-muted mb-2">Total Pending</div>
+      <div class="h3 mb-0">{{ pending_count }}</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm p-3 text-center">
+      <div class="text-uppercase small text-muted mb-2">Total Sent</div>
+      <div class="h3 mb-0">{{ sent_count }}</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm p-3 text-center">
+      <div class="text-uppercase small text-muted mb-2">TODAY's Sent</div>
+      <div class="h3 mb-0">{{ today_sent }} / {{ daily_limit }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="row gx-4 gy-4">
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title mb-3">Campaign Template</h5>
+        <form method="post">
+          <div class="mb-3">
+            <label for="subject" class="form-label">Email Subject</label>
+            <input type="text" class="form-control" id="subject" name="subject" value="{{ config.subject }}" required>
+          </div>
+          <div class="mb-3">
+            <label for="body" class="form-label">Email Body</label>
+            <textarea class="form-control" id="body" name="body" rows="10" required>{{ config.body }}</textarea>
+            <div class="form-text">Use <code>{{ '{{NAME}}' }}</code>, <code>{{ '{{EMAIL}}' }}</code>, <code>{{ '{{LINK1}}' }}</code>, and <code>{{ '{{LINK2}}' }}</code> to personalize the message.</div>
+          </div>
+          <div class="mb-3">
+            <label for="link1" class="form-label">Primary CTA Link</label>
+            <input type="url" class="form-control" id="link1" name="link1" value="{{ config.link1 }}" required>
+          </div>
+          <div class="mb-3">
+            <label for="link2" class="form-label">Secondary CTA Link</label>
+            <input type="url" class="form-control" id="link2" name="link2" value="{{ config.link2 }}" required>
+          </div>
+          <div class="mb-3">
+            <label for="daily_limit" class="form-label">Daily Email Limit</label>
+            <input type="number" class="form-control" id="daily_limit" name="daily_limit" value="{{ daily_limit }}" min="1" required>
+            <div class="form-text">Maximum number of emails to send per day. Default is 20.</div>
+          </div>
+          <button type="submit" class="btn btn-primary">Save Campaign Settings</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <h5 class="card-title mb-3">Today's Campaign Activity</h5>
+        <p class="mb-2"><strong>Sent Today:</strong> {{ today_sent }}</p>
+        <div class="mb-3">
+          <div class="small text-muted mb-2">Category sent breakdown</div>
+          {% for key, label in category_filters if key != 'all' %}
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span>{{ label }}</span>
+            <span class="badge {{ category_badges.get(key, 'bg-secondary text-dark') }}">{{ category_breakdown.get(key, 0) }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title mb-3">Quick Tips</h5>
+        <ul class="list-unstyled mb-0">
+          <li>• Keep the subject line concise and action-driven.</li>
+          <li>• Personalize with <code>{{ '{{NAME}}' }}</code> to improve open rates.</li>
+          <li>• Use both links in the body to increase click-throughs.</li>
+          <li>• Run the campaign when you want to immediately process pending leads.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

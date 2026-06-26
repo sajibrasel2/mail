@@ -1,0 +1,256 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row mb-4">
+  <div class="col-12">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+      <div>
+        <h1 class="page-title mb-1">Compose Email</h1>
+        <p class="text-muted">Choose a professional template or write a custom email.</p>
+      </div>
+      <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">Back to Dashboard</a>
+    </div>
+  </div>
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-lg-12">
+    <!-- Template Selector Cards -->
+    <div class="mb-4">
+      <h5 class="mb-3">Email Composition Mode</h5>
+      <div class="btn-group w-100" role="group">
+        <input type="radio" class="btn-check" name="compose-mode" id="template-mode" value="template" checked>
+        <label class="btn btn-outline-primary" for="template-mode">
+          <i class="bi bi-file-earmark-text"></i> Use Professional Template
+        </label>
+        
+        <input type="radio" class="btn-check" name="compose-mode" id="custom-mode" value="custom">
+        <label class="btn btn-outline-primary" for="custom-mode">
+          <i class="bi bi-pencil-square"></i> Write Custom Email
+        </label>
+      </div>
+    </div>
+
+    <!-- Template Mode -->
+    <div id="template-section" class="card shadow-sm border-0 mb-4">
+      <div class="card-body p-4">
+        <h5 class="card-title mb-3">Professional Email Templates</h5>
+        
+        <form id="template-form" method="post">
+          <input type="hidden" name="use_template" value="yes">
+          <input type="hidden" name="category" id="template-category" value="{{ selected_category }}">
+          
+          <!-- Category Selection -->
+          <div class="mb-4">
+            <label for="template-select" class="form-label fw-semibold">Select Template Category</label>
+            <div class="mb-2">
+              <small class="text-muted">Each category has a customized template optimized for that audience.</small>
+            </div>
+            <select class="form-select form-select-lg" id="template-select" onchange="updateTemplatePreview()">
+              <option value="Unknown" selected>-- Choose a Template --</option>
+              <option value="Developer (GitHub)">Developer (GitHub) - Tech-Focused</option>
+              <option value="Web (General)">Web (General) - Business</option>
+              <option value="Gaming">Gaming - Community Focused</option>
+              <option value="Marketing">Marketing - Growth Focused</option>
+              <option value="Business">Business - Corporate</option>
+              <option value="Freelancer">Freelancer - Flexible Opportunity</option>
+              <option value="Blogger">Blogger - Content Creator</option>
+              <option value="Job Seeker">Job Seeker - Career Focused</option>
+            </select>
+          </div>
+
+          <!-- Link Field -->
+          <div class="mb-4">
+            <label for="link" class="form-label fw-semibold">Your Website Link</label>
+            <div class="mb-2">
+              <small class="text-muted">This will be inserted as a CTA link in all emails. Supports: https://, custom URLs, affiliate links.</small>
+            </div>
+            <input 
+              type="url" 
+              class="form-control form-control-lg" 
+              id="link" 
+              name="link"
+              placeholder="https://yoursite.com or https://yoursite.com/special-offer"
+              required
+              oninput="updateTemplatePreview()">
+            <small class="form-text text-muted mt-2">Example: <code>https://example.com/webinar</code></small>
+          </div>
+
+          <!-- Sender Information (Optional) -->
+          <div class="accordion mb-4" id="senderAccordion">
+            <div class="accordion-item">
+              <h2 class="accordion-header">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseSender">
+                  <i class="bi bi-person-lines-fill"></i> Customize Sender Details (Optional)
+                </button>
+              </h2>
+              <div id="collapseSender" class="accordion-collapse collapse" data-bs-parent="#senderAccordion">
+                <div class="accordion-body">
+                  <div class="row">
+                    <div class="col-md-6 mb-3">
+                      <label for="sender_name" class="form-label">Your Name</label>
+                      <input type="text" class="form-control" id="sender_name" name="sender_name" placeholder="Your Name" oninput="updateTemplatePreview()">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                      <label for="sender_email_custom" class="form-label">Email Address</label>
+                      <input type="email" class="form-control" id="sender_email_custom" name="sender_email_custom" placeholder="your@email.com" oninput="updateTemplatePreview()">
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="col-md-6">
+                      <label for="sender_phone" class="form-label">Phone Number (Optional)</label>
+                      <input type="tel" class="form-control" id="sender_phone" name="sender_phone" placeholder="+1-555-0000" oninput="updateTemplatePreview()">
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Target Category Badge -->
+          <div class="mb-4">
+            <span class="badge {{ category_badges.get(selected_category, 'bg-secondary text-dark') }} fs-6">
+              Sending to: {{ selected_category }}
+            </span>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-info btn-lg" data-bs-toggle="modal" data-bs-target="#previewModal">
+              <i class="bi bi-eye"></i> Preview Template
+            </button>
+            <button type="submit" class="btn btn-primary btn-lg">
+              <i class="bi bi-send-check"></i> Send to Pending Leads
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Custom Mode -->
+    <div id="custom-section" class="card shadow-sm border-0 mb-4" style="display: none;">
+      <div class="card-body p-4">
+        <h5 class="card-title mb-3">Write Custom Email</h5>
+        
+        <form method="post">
+          <input type="hidden" name="use_template" value="no">
+          <input type="hidden" name="category" value="{{ selected_category }}">
+          
+          <div class="mb-4">
+            <label for="subject" class="form-label fw-semibold">Email Subject</label>
+            <input 
+              type="text" 
+              class="form-control form-control-lg" 
+              id="subject" 
+              name="subject" 
+              placeholder="Enter a clear subject line"
+              required>
+          </div>
+
+          <div class="mb-4">
+            <label for="body" class="form-label fw-semibold">Email Body</label>
+            <div class="mb-2">
+              <small class="text-muted">Write your custom email message. You can use these placeholders: <code>{{ '{{NAME}}' }}</code> (recipient name), <code>{{ '{{EMAIL}}' }}</code> (recipient email)</small>
+            </div>
+            <textarea 
+              class="form-control form-control-lg" 
+              id="body" 
+              name="body" 
+              rows="14" 
+              placeholder="Write your email content here..."
+              required></textarea>
+          </div>
+
+          <div class="mb-4">
+            <span class="badge {{ category_badges.get(selected_category, 'bg-secondary text-dark') }} fs-6">
+              Sending to: {{ selected_category }}
+            </span>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-lg">
+            <i class="bi bi-send-check"></i> Send to Pending Leads
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Preview Modal -->
+<div class="modal fade" id="previewModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Email Template Preview</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="preview-content">
+          <p class="text-muted text-center">Select a category and enter your link to preview the template.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Mode switcher
+document.querySelectorAll('input[name="compose-mode"]').forEach(radio => {
+  radio.addEventListener('change', function() {
+    if (this.value === 'template') {
+      document.getElementById('template-section').style.display = 'block';
+      document.getElementById('custom-section').style.display = 'none';
+    } else {
+      document.getElementById('template-section').style.display = 'none';
+      document.getElementById('custom-section').style.display = 'block';
+    }
+  });
+});
+
+function updateTemplatePreview() {
+  const category = document.getElementById('template-select').value;
+  const link = document.getElementById('link').value || 'https://example.com';
+  const senderName = document.getElementById('sender_name').value || 'Your Company';
+  const senderEmail = document.getElementById('sender_email_custom').value || 'contact@example.com';
+  const senderPhone = document.getElementById('sender_phone').value || '';
+
+  if (!category || category === '--') {
+    document.getElementById('preview-content').innerHTML = '<p class="text-muted text-center">Please select a template category.</p>';
+    return;
+  }
+
+  // Fetch preview from server
+  const params = new URLSearchParams({
+    category: category,
+    link: link,
+    sender_name: senderName,
+    sender_email: senderEmail,
+    sender_phone: senderPhone
+  });
+
+  fetch('/template-preview?' + params)
+    .then(response => response.text())
+    .then(html => {
+      // Extract the preview content from the response
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const previewContent = doc.querySelector('#preview-body');
+      if (previewContent) {
+        document.getElementById('preview-content').innerHTML = previewContent.innerHTML;
+      }
+    })
+    .catch(error => {
+      console.error('Error loading preview:', error);
+      document.getElementById('preview-content').innerHTML = '<p class="text-danger">Error loading preview.</p>';
+    });
+}
+
+// Update category when selecting from template
+document.getElementById('template-select').addEventListener('change', function() {
+  document.getElementById('template-category').value = this.value;
+});
+</script>
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div id="preview-body">
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-4">
+      <div class="alert alert-info mb-4">
+        <strong>Preview for:</strong> <span class="badge bg-light text-dark">{{ category }}</span>
+      </div>
+
+      <!-- Email Subject -->
+      <div class="mb-4">
+        <label class="form-label fw-semibold text-muted">Subject Line:</label>
+        <div class="bg-light p-3 rounded" style="border-left: 4px solid #0d6efd;">
+          <h6 class="mb-0">{{ subject }}</h6>
+        </div>
+      </div>
+
+      <!-- Email Body -->
+      <div class="mb-4">
+        <label class="form-label fw-semibold text-muted">Email Body:</label>
+        <div class="bg-white p-4 rounded border">
+          <div style="font-family: Georgia, serif; line-height: 1.6; color: #333;">
+            {% for line in body.split('\n') %}
+              {% if line.strip() %}
+                <p>{{ line }}</p>
+              {% else %}
+                <br>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Link Preview -->
+      <div class="mb-4">
+        <label class="form-label fw-semibold text-muted">Link in Email:</label>
+        <div class="input-group">
+          <input type="text" class="form-control" value="{{ link }}" readonly>
+          <a href="{{ link }}" target="_blank" class="btn btn-outline-primary">Visit Link</a>
+        </div>
+      </div>
+
+      <!-- Sender Information -->
+      {% if sender_name or sender_email or sender_phone %}
+      <div class="alert alert-light border">
+        <strong>Sender Information:</strong>
+        <ul class="mb-0 mt-2">
+          {% if sender_name %}
+          <li><strong>Name:</strong> {{ sender_name }}</li>
+          {% endif %}
+          {% if sender_email %}
+          <li><strong>Email:</strong> {{ sender_email }}</li>
+          {% endif %}
+          {% if sender_phone %}
+          <li><strong>Phone:</strong> {{ sender_phone }}</li>
+          {% endif %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <!-- Personalization Notes -->
+      <div class="alert alert-light mt-4">
+        <strong><i class="bi bi-info-circle"></i> Personalization:</strong>
+        <ul class="mb-0 mt-2">
+          <li><code>{{ '{{NAME}}' }}</code> will be replaced with each recipient's name</li>
+          <li><code>{{ '{{EMAIL}}' }}</code> will be replaced with each recipient's email</li>
+          <li><code>{{ '{{LINK}}' }}</code> will be replaced with your website link</li>
+          <li>Each email will be individually personalized before sending</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

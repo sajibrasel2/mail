@@ -1,0 +1,10 @@
+﻿.env
+__pycache__/
+*.pyc
+.idea/
+.venv/
+emails.txt
+backup_*.txt
+*.log
+*.sqlite
+*.db
