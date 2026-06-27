@@ -13,6 +13,19 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'change-me')
 
+# When running behind the PHP proxy, honor X-Forwarded headers so URL generation
+# and redirects use the original host/proto/prefix. Try both newer and older
+# ProxyFix signatures for compatibility.
+try:
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    try:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
+    except TypeError:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+except Exception:
+    # ProxyFix not available; continue without it
+    pass
+
 # Authentication defaults. These can be overridden with environment variables.
 AUTH_EMAIL = os.getenv('AUTH_EMAIL', 'raselsajib25@gmail.com')
 AUTH_PASSWORD = os.getenv('AUTH_PASSWORD', '12345Sajibs6@')

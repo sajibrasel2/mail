@@ -26,6 +26,13 @@ foreach (getallheaders() as $name => $value) {
 }
 $headers[] = 'Host: ' . $targetHost;
 
+// Add X-Forwarded headers so Flask (with ProxyFix) can reconstruct original URL
+$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$headers[] = 'X-Forwarded-Host: ' . ($_SERVER['HTTP_HOST'] ?? $targetHost);
+$headers[] = 'X-Forwarded-Proto: ' . $scheme;
+$headers[] = 'X-Forwarded-Prefix: ' . $basePath;
+$headers[] = 'X-Forwarded-For: ' . ($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1');
+
 $responseBody = '';
 $responseHeaders = [];
 $responseCode = 502;
@@ -47,9 +54,19 @@ if (function_exists('curl_init')) {
     $rawResponse = curl_exec($ch);
     if ($rawResponse !== false) {
         $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-        $responseHeaders = explode("\r\n", trim(substr($rawResponse, 0, $headerSize)));
+        $rawHeaders = trim(substr($rawResponse, 0, $headerSize));
+        $responseHeaders = explode("\r\n", $rawHeaders);
         $responseBody = substr($rawResponse, $headerSize);
         $responseCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        // Rewrite Location headers that reference localhost/127.0.0.1 back to public path
+        foreach ($responseHeaders as &$hdr) {
+            if (stripos($hdr, 'Location:') === 0) {
+                $loc = trim(substr($hdr, strlen('Location:')));
+                $hdr = 'Location: ' . rewrite_location_header($loc);
+            }
+        }
+        unset($hdr);
     } else {
         $responseBody = 'Proxy error: ' . curl_error($ch);
     }
@@ -70,6 +87,15 @@ if (function_exists('curl_init')) {
         $responseHeaders = $http_response_header;
         preg_match('#HTTP/\d+\.\d+\s+(\d+)#', $http_response_header[0], $matches);
         $responseCode = isset($matches[1]) ? intval($matches[1]) : 200;
+
+        // Rewrite Location headers in the stream wrapper headers
+        foreach ($responseHeaders as &$hdr) {
+            if (stripos($hdr, 'Location:') === 0) {
+                $loc = trim(substr($hdr, strlen('Location:')));
+                $hdr = 'Location: ' . rewrite_location_header($loc);
+            }
+        }
+        unset($hdr);
     } else {
         $responseBody = 'Proxy error: unable to connect to ' . $targetHost . ':' . $targetPort;
     }
@@ -90,3 +116,30 @@ foreach ($responseHeaders as $headerLine) {
 }
 
 echo $responseBody;
+
+
+// Helper to rewrite Location headers from local addresses to public path
+function rewrite_location_header($location) {
+    if (empty($location)) return $location;
+    $location = trim($location);
+    $parsed = parse_url($location);
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? null;
+
+    // If absolute URL pointing to localhost or 127.0.0.1, map to public host + basePath
+    if (isset($parsed['host']) && preg_match('#^(127\.0\.0\.1|localhost)$#', $parsed['host'])) {
+        $path = $parsed['path'] ?? '/';
+        $query = isset($parsed['query']) ? ('?' . $parsed['query']) : '';
+        if ($host) {
+            return $scheme . '://' . $host . $GLOBALS['basePath'] . $path . $query;
+        }
+        return $GLOBALS['basePath'] . $path . $query;
+    }
+
+    // If it's a root-relative path and not already prefixed, add the basePath
+    if (isset($location[0]) && $location[0] === '/' && strpos($location, $GLOBALS['basePath']) !== 0) {
+        return $GLOBALS['basePath'] . $location;
+    }
+
+    return $location;
+}
