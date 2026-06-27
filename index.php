@@ -2,7 +2,13 @@
 // PHP proxy to the local Flask app running on 127.0.0.1:5000.
 $targetHost = '127.0.0.1';
 $targetPort = 5000;
-$targetUrl = 'http://' . $targetHost . ':' . $targetPort . $_SERVER['REQUEST_URI'];
+$basePath = '/mail';
+$requestUri = $_SERVER['REQUEST_URI'];
+$forwardPath = preg_replace('#^' . preg_quote($basePath, '#') . '#', '', $requestUri, 1);
+if ($forwardPath === '' || $forwardPath[0] !== '/') {
+    $forwardPath = '/' . ltrim($forwardPath, '/');
+}
+$targetUrl = 'http://' . $targetHost . ':' . $targetPort . $forwardPath;
 $method = $_SERVER['REQUEST_METHOD'];
 $body = file_get_contents('php://input');
 $headers = [];
