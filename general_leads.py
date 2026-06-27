@@ -1148,18 +1148,43 @@ def search_bing(query, max_results=RESULTS_PER_QUERY):
         )
         try:
             soup = BeautifulSoup(raw_html, "html.parser")
+            selectors = [
+                "li.b_algo h2 a",
+                "h2 a",
+                ".b_algo h2 a",
+                "a[href*='bing.com/ck/a']",
+            ]
             parsed_links = []
-            for a in soup.select("li.b_algo h2 a"):
-                href = a.get("href")
-                if href:
-                    parsed_links.append(href)
+            for selector in selectors:
+                found = []
+                for a in soup.select(selector):
+                    href = a.get("href")
+                    if href:
+                        found.append(href)
+                logging.info("[search_bing] selector %r matched %d links for query=%r", selector, len(found), query)
+                if found:
+                    parsed_links.extend(found)
+                    break
+
+            if not parsed_links:
+                for link in soup.find_all("a", href=True):
+                    href = link.get("href", "")
+                    if href.startswith("http"):
+                        parsed_links.append(href)
+                logging.info("[search_bing] fallback extracted %d links for query=%r", len(parsed_links), query)
+
             urls = parsed_links[:max_results]
             logging.info("[search_bing] found %d links for query=%r", len(urls), query)
             if urls:
                 logging.info("[search_bing] first result=%s", urls[0][:200])
+            else:
+                snippet = raw_html[:2000].replace("\n", " ").replace("\r", " ")
+                logging.info("[search_bing] no links found; HTML sample=%s", snippet)
         except Exception as parse_exc:
             logging.exception("[search_bing] parsing failed for query=%r", query)
             logging.error("[search_bing] parse error details: %s", parse_exc)
+            snippet = raw_html[:2000].replace("\n", " ").replace("\r", " ")
+            logging.info("[search_bing] parse error HTML sample=%s", snippet)
     except Exception as exc:
         logging.exception("[search_bing] request failed for query=%r", query)
         logging.error("[search_bing] request error details: %s", exc)
