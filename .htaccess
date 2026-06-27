@@ -1,0 +1,13 @@
+# Use mod_proxy to forward requests from Apache to the Flask app running on localhost:5000
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /mail/
+
+    # Proxy all requests to the Flask development server
+    RewriteRule ^(.*)$ http://127.0.0.1:5000/$1 [P,L,QSA]
+</IfModule>
+
+# If mod_proxy is not available, fallback to a simple pass-through
+<IfModule !mod_rewrite.c>
+    ErrorDocument 503 "Proxy support is required for this application."
+</IfModule>
