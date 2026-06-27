@@ -1084,17 +1084,14 @@ def search_google(query, max_results=RESULTS_PER_QUERY):
 def search_bing(query, max_results=RESULTS_PER_QUERY):
     urls = []
     try:
-        resp = _get_url(f"https://www.bing.com/search?q={quote_plus(query)}")
+        url = f"https://www.bing.com/search?q={quote_plus(query)}"
+        resp = _get_url(url)
         if resp is None:
             return urls
         soup = BeautifulSoup(resp.text, "html.parser")
-        for h2 in soup.select("li.b_algo h2 a"):
-            href = h2.get("href")
+        for a in soup.select("li.b_algo h2 a"):
+            href = a.get("href")
             if href:
-                urls.append(href)
-        for a in soup.select("a[href]"):
-            href = a["href"].strip()
-            if href.startswith("http") and "bing.com" not in href:
                 urls.append(href)
     except Exception:
         pass
@@ -1192,22 +1189,50 @@ def search_baidu(query, max_results=RESULTS_PER_QUERY):
 
 def search_all_engines(query, max_results=RESULTS_PER_QUERY, engine="all"):
     urls = set()
-    engines = []
-    if engine in ("all", "google") and google_search:
-        engines.append(search_google)
-    if engine in ("all", "bing"):
-        engines.append(search_bing)
-    if engine in ("all", "duckduckgo"):
-        engines.append(search_duckduckgo)
-    if engine == "all":
-        engines.extend([search_yahoo, search_yandex, search_qwant, search_startpage])
-    if query:
-        for engine_func in engines:
+    
+    # Establish priority search order: Bing -> DuckDuckGo -> Google
+    if engine == "bing":
+        order = [search_bing, search_duckduckgo]
+        if google_search:
+            order.append(search_google)
+    elif engine == "duckduckgo":
+        order = [search_duckduckgo]
+    elif engine == "google":
+        order = [search_google] if google_search else []
+    else:  # "all" or any other value
+        order = [search_bing, search_duckduckgo]
+        if google_search:
+            order.append(search_google)
+        extra_engines = [search_yahoo, search_yandex, search_qwant, search_startpage]
+    
+    # Execute engines in priority order. If an engine returns results, we stop trying fallbacks.
+    results_found = False
+    for engine_func in order:
+        if not engine_func:
+            continue
+        try:
+            found = engine_func(query, max_results=max_results)
+            if found:
+                urls.update(found)
+                results_found = True
+                break
+        except Exception:
+            pass
+        time.sleep(random.uniform(0.5, 1.5))
+        
+    # If no results were found from priority engines, and we are using "all", try extra engines
+    if not results_found and engine == "all":
+        for engine_func in extra_engines:
+            if not engine_func:
+                continue
             try:
-                urls.update(engine_func(query, max_results=max_results))
+                found = engine_func(query, max_results=max_results)
+                if found:
+                    urls.update(found)
             except Exception:
                 pass
             time.sleep(random.uniform(0.5, 1.5))
+            
     return list(urls)[: max_results * 3]
 
 
