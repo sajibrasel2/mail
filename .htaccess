@@ -1,43 +1,19 @@
-# .htaccess for /mail — try mod_proxy proxying first, fallback to Passenger
+PassengerEnabled on
+PassengerAppRoot /home/techandc/public_html/mail
+PassengerBaseURI /mail
+PassengerPython /usr/bin/python3
+PassengerStartupFile passenger_wsgi.py
 
-<IfModule mod_proxy.c>
-  <IfModule mod_rewrite.c>
-    RewriteEngine On
-    RewriteBase /mail/
-    # Proxy all requests to local Flask server (requires mod_proxy + mod_proxy_http)
-    RewriteRule ^(.*)$ http://127.0.0.1:5000/$1 [P,L]
-  </IfModule>
-</IfModule>
-
-<IfModule mod_passenger.c>
-  PassengerEnabled on
-  PassengerAppRoot /home/techandc/public_html/mail
-  PassengerBaseURI /mail
-  PassengerPython /usr/bin/python3
-  PassengerStartupFile passenger_wsgi.py
-</IfModule>
-
-# Disable directory listings
-Options -Indexes
-# Use mod_proxy to forward requests from Apache to the Flask app running on localhost:5000
+# Serve existing files and directories directly
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /mail/
 
-    # Preserve existing files and allow direct access to static/test files
-    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
     RewriteRule ^ - [L]
 
-    # Proxy all other requests to the local Flask app
-    RewriteRule ^(.*)$ http://127.0.0.1:5000/$1 [P,L,QSA]
+    RewriteRule ^ index.php [L,QSA]
 </IfModule>
 
-<IfModule mod_proxy.c>
-    ProxyRequests Off
-    ProxyPreserveHost On
-    ProxyPassReverse /mail/ http://127.0.0.1:5000/
-</IfModule>
-
-<IfModule !mod_rewrite.c>
-    ErrorDocument 503 "Apache mod_rewrite is required for this application."
-</IfModule>
+Options -Indexes
