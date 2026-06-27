@@ -24,24 +24,31 @@ from bs4 import BeautifulSoup
 # DuckDuckGo search compatibility: try multiple import styles across versions
 ddg = None
 try:
-    from duckduckgo_search import ddg  # modern API
+    from ddgs import DDGS
+    def ddg(query, max_results=25):
+        try:
+            return list(DDGS().text(query, max_results=max_results))
+        except Exception:
+            return []
 except Exception:
     try:
-        from ddgs import ddg  # alternate package name
+        from duckduckgo_search import DDGS
+        def ddg(query, max_results=25):
+            try:
+                return list(DDGS().text(query, max_results=max_results))
+            except Exception:
+                return []
     except Exception:
-        try:
-            from duckduckgo_search import DDGS
-            def ddg(query, max_results=25):
-                try:
-                    return list(DDGS().text(query, max_results=max_results))
-                except Exception:
-                    return []
-        except Exception:
-            ddg = None
+        ddg = None
 import mysql.connector
 
 try:
-    from googlesearch import search as google_search
+    from googlesearch import search as _google_search
+    def google_search(query, max_results=25):
+        try:
+            return list(_google_search(query, num_results=max_results))
+        except Exception:
+            return []
 except ImportError:
     google_search = None
 
@@ -701,11 +708,18 @@ def search_crunchbase_pages(keywords=None, max_results=20):
     try:
         for keyword in keywords:
             query = f'site:crunchbase.com "{keyword}" "email"'
-            results = _ddg_search(query, max_results=max_results)
+            results = search_duckduckgo(query, max_results=max_results)
+            if not results:
+                results = _ddg_search(query, max_results=max_results)
             for item in results:
-                url = item.get("href") or item.get("url") or item.get("link") or ""
+                if isinstance(item, dict):
+                    url = item.get("href") or item.get("url") or item.get("link") or ""
+                else:
+                    url = str(item).strip()
                 if url and "crunchbase.com" in url:
                     urls.append(url)
+            if not results:
+                logging.warning("Crunchbase query returned no results: %s", query)
             time.sleep(1.0)
     except Exception as exc:
         logging.warning("Crunchbase search failed: %s", exc)
@@ -1688,19 +1702,19 @@ def main():
         print("\nGITHUB_PAT not set; skipping GitHub public collection.")
 
     crunchbase_saved = collect_crunchbase_public_emails(category=args.category)
-    print(f"✅ Crunchbase saved: {crunchbase_saved} leads")
+    print(f"Crunchbase saved: {crunchbase_saved} leads")
 
     search_saved = collect_search_engine_leads(category=args.category, engine=args.engine)
-    print(f"✅ Search engine saved ({args.engine}): {search_saved} leads")
+    print(f"Search engine saved ({args.engine}): {search_saved} leads")
 
     social_saved = collect_social_media_leads(category=args.category)
-    print(f"✅ Social media saved: {social_saved} leads")
+    print(f"Social media saved: {social_saved} leads")
 
     professional_saved = collect_professional_platform_leads(category=args.category)
-    print(f"✅ Professional platforms saved: {professional_saved} leads")
+    print(f"Professional platforms saved: {professional_saved} leads")
 
     file_saved = collect_public_files(category=args.category)
-    print(f"✅ Public file saved: {file_saved} leads")
+    print(f"Public file saved: {file_saved} leads")
 
     collector = Collector(category=args.category)
     query_limit = args.quick
