@@ -1128,18 +1128,41 @@ def search_google(query, max_results=RESULTS_PER_QUERY):
 
 def search_bing(query, max_results=RESULTS_PER_QUERY):
     urls = []
+    url = f"https://www.bing.com/search?q={quote_plus(query)}"
+    logging.info("[search_bing] sending request for query=%r", query)
+    logging.info("[search_bing] URL=%s", url)
     try:
-        url = f"https://www.bing.com/search?q={quote_plus(query)}"
         resp = _get_url(url)
         if resp is None:
+            logging.warning("[search_bing] no response received for query=%r", query)
             return urls
-        soup = BeautifulSoup(resp.text, "html.parser")
-        for a in soup.select("li.b_algo h2 a"):
-            href = a.get("href")
-            if href:
-                urls.append(href)
-    except Exception:
-        pass
+
+        status_code = getattr(resp, "status_code", "unknown")
+        raw_html = resp.text or ""
+        logging.info("[search_bing] response status=%s for query=%r", status_code, query)
+        logging.info("[search_bing] response length=%d for query=%r", len(raw_html), query)
+        logging.info(
+            "[search_bing] raw HTML snippet for query=%r: %s",
+            query,
+            raw_html[:500].replace("\n", " ").replace("\r", " "),
+        )
+        try:
+            soup = BeautifulSoup(raw_html, "html.parser")
+            parsed_links = []
+            for a in soup.select("li.b_algo h2 a"):
+                href = a.get("href")
+                if href:
+                    parsed_links.append(href)
+            urls = parsed_links[:max_results]
+            logging.info("[search_bing] found %d links for query=%r", len(urls), query)
+            if urls:
+                logging.info("[search_bing] first result=%s", urls[0][:200])
+        except Exception as parse_exc:
+            logging.exception("[search_bing] parsing failed for query=%r", query)
+            logging.error("[search_bing] parse error details: %s", parse_exc)
+    except Exception as exc:
+        logging.exception("[search_bing] request failed for query=%r", query)
+        logging.error("[search_bing] request error details: %s", exc)
     return urls[:max_results]
 
 
