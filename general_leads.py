@@ -740,10 +740,10 @@ def collect_crunchbase_public_emails(keywords=None, category="all"):
     return saved
 
 
-def collect_search_engine_leads(category="all"):
+def collect_search_engine_leads(category="all", engine="all"):
     saved = 0
     for query_text, q_category in build_queries(category):
-        urls = search_all_engines(query_text, max_results=RESULTS_PER_QUERY)
+        urls = search_all_engines(query_text, max_results=RESULTS_PER_QUERY, engine=engine)
         for url in urls:
             time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
             for email in _emails_from_url(url):
@@ -1168,30 +1168,25 @@ def search_baidu(query, max_results=RESULTS_PER_QUERY):
     return urls[:max_results]
 
 
-def search_all_engines(query, max_results=RESULTS_PER_QUERY):
+def search_all_engines(query, max_results=RESULTS_PER_QUERY, engine="all"):
     urls = set()
-    engines = [search_duckduckgo, search_bing, search_yahoo, search_yandex, search_qwant, search_startpage]
-    if google_search:
-        engines.insert(1, search_google)
+    engines = []
+    if engine in ("all", "google") and google_search:
+        engines.append(search_google)
+    if engine in ("all", "bing"):
+        engines.append(search_bing)
+    if engine in ("all", "duckduckgo"):
+        engines.append(search_duckduckgo)
+    if engine == "all":
+        engines.extend([search_yahoo, search_yandex, search_qwant, search_startpage])
     if query:
-        for engine in engines:
+        for engine_func in engines:
             try:
-                urls.update(engine(query, max_results=max_results))
+                urls.update(engine_func(query, max_results=max_results))
             except Exception:
                 pass
             time.sleep(random.uniform(0.5, 1.5))
     return list(urls)[: max_results * 3]
-    seen = set()
-    for a in soup.find_all("a", href=True):
-        h = a["href"].strip()
-        for slug in DEEP_SLUGS:
-            if slug in h.lower():
-                full = h if h.startswith("http") else base.rstrip("/") + "/" + h.lstrip("/")
-                if full not in seen:
-                    seen.add(full)
-                    urls.add(full)
-                break
-    return list(urls)[:12]
 
 
 def scrape_site(url):
@@ -1654,6 +1649,13 @@ def main():
         help="Run a category-specific campaign: gaming, marketing, business, freelancer, online-income, affiliate-marketers, side-hustle, blogger, all",
     )
     parser.add_argument("--skip-github", action="store_true", help="Skip GitHub public email collection")
+    parser.add_argument(
+        "--engine",
+        type=str,
+        default="all",
+        choices=["google", "bing", "duckduckgo", "all"],
+        help="Primary search engine to use for search engine lead collection",
+    )
     args = parser.parse_args()
 
     if args.report:
@@ -1688,8 +1690,8 @@ def main():
     crunchbase_saved = collect_crunchbase_public_emails(category=args.category)
     print(f"✅ Crunchbase saved: {crunchbase_saved} leads")
 
-    search_saved = collect_search_engine_leads(category=args.category)
-    print(f"✅ Search engine saved: {search_saved} leads")
+    search_saved = collect_search_engine_leads(category=args.category, engine=args.engine)
+    print(f"✅ Search engine saved ({args.engine}): {search_saved} leads")
 
     social_saved = collect_social_media_leads(category=args.category)
     print(f"✅ Social media saved: {social_saved} leads")
