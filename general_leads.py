@@ -21,7 +21,23 @@ from urllib.parse import quote_plus, urlparse, urljoin
 
 import requests
 from bs4 import BeautifulSoup
-from duckduckgo_search import ddg
+# DuckDuckGo search compatibility: try multiple import styles across versions
+ddg = None
+try:
+    from duckduckgo_search import ddg  # modern API
+except Exception:
+    try:
+        from ddgs import ddg  # alternate package name
+    except Exception:
+        try:
+            from duckduckgo_search import DDGS
+            def ddg(query, max_results=25):
+                try:
+                    return list(DDGS().text(query, max_results=max_results))
+                except Exception:
+                    return []
+        except Exception:
+            ddg = None
 import mysql.connector
 
 try:
