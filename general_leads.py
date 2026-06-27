@@ -222,6 +222,31 @@ MAX_RETRIES = 5
 DDG_RETRIES = 3
 DDG_RETRY_DELAY = 3
 DDG_SEARCH_TIMEOUT = 30
+COLLECTION_TIMEOUT = 900  # 15 min timeout per collection phase
+
+
+def run_with_timeout(func, args=(), kwargs=None, timeout_sec=COLLECTION_TIMEOUT):
+    """Run func with a hard timeout. Returns result or raises TimeoutError."""
+    if kwargs is None:
+        kwargs = {}
+    result = []
+    exc_info = []
+
+    def wrapper():
+        try:
+            result.append(func(*args, **kwargs))
+        except Exception as e:
+            exc_info.append(e)
+
+    t = threading.Thread(target=wrapper, daemon=True)
+    t.start()
+    t.join(timeout_sec)
+    if t.is_alive():
+        raise TimeoutError(f"'{func.__name__}' timed out after {timeout_sec}s")
+    if exc_info:
+        raise exc_info[0]
+    return result[0] if result else None
+
 
 # ============================================================
 # USER-AGENTS
@@ -764,14 +789,33 @@ def collect_crunchbase_public_emails(keywords=None, category="all"):
 
 
 def collect_search_engine_leads(category="all", engine="all"):
+    logging.debug("collect_search_engine_leads() STARTED with category='%s' engine='%s'", category, engine)
+    queries = build_queries(category)
+    logging.info("collect_search_engine_leads: %d queries to process", len(queries))
+    if not queries:
+        logging.warning("collect_search_engine_leads: query list is EMPTY — nothing to do")
+        return 0
+    logging.debug("First 3 queries: %s", [(q[0][:80], q[1]) for q in queries[:3]])
+
     saved = 0
-    for query_text, q_category in build_queries(category):
-        urls = search_all_engines(query_text, max_results=RESULTS_PER_QUERY, engine=engine)
+    for i, (query_text, q_category) in enumerate(queries, 1):
+        if i % 25 == 0 or i == 1:
+            logging.info("collect_search_engine_leads: query %d/%d [saved=%d]", i, len(queries), saved)
+        try:
+            urls = search_all_engines(query_text, max_results=RESULTS_PER_QUERY, engine=engine)
+        except Exception as exc:
+            logging.debug("search_all_engines failed for query %d: %s", i, exc)
+            urls = []
+        if not urls:
+            logging.debug("Query %d returned 0 URLs: %s", i, query_text[:80])
         for url in urls:
             time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
-            for email in _emails_from_url(url):
-                if save_single_email(email, source="SearchEngine", category=q_category):
-                    saved += 1
+            try:
+                for email in _emails_from_url(url):
+                    if save_single_email(email, source="SearchEngine", category=q_category):
+                        saved += 1
+            except Exception as exc:
+                logging.debug("_emails_from_url/save failed for %s: %s", url[:80], exc)
         if saved and saved % BACKUP_BATCH == 0:
             _backup_emails()
     logging.info("Search engine collection complete — saved %d new leads.", saved)
@@ -1743,7 +1787,12 @@ def main():
         crunchbase_saved = collect_crunchbase_public_emails(category=args.category)
         print(f"Crunchbase saved: {crunchbase_saved} leads")
 
-    search_saved = collect_search_engine_leads(category=args.category, engine=args.engine)
+    try:
+        search_saved = run_with_timeout(collect_search_engine_leads, args=(args.category, args.engine), timeout_sec=COLLECTION_TIMEOUT)
+    except TimeoutError as exc:
+        logging.error("collect_search_engine_leads TIMED OUT: %s", exc)
+        print(f"\n  TIMEOUT: collect_search_engine_leads exceeded {COLLECTION_TIMEOUT}s — skipping to next phase")
+        search_saved = 0
     print(f"Search engine saved ({args.engine}): {search_saved} leads")
 
     social_saved = collect_social_media_leads(category=args.category)
