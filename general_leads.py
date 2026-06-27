@@ -680,14 +680,14 @@ def search_crunchbase_pages(keywords=None, max_results=20):
         keywords = ["startup", "founder", "technology", "software"]
     urls = []
     try:
-        with ddg as ddgs:
-            for keyword in keywords:
-                query = f'site:crunchbase.com "{keyword}" "email"'
-                for item in ddgs.text(query, max_results=max_results):
-                    url = item.get("href") or item.get("url") or ""
-                    if url and "crunchbase.com" in url:
-                        urls.append(url)
-                time.sleep(1.0)
+        for keyword in keywords:
+            query = f'site:crunchbase.com "{keyword}" "email"'
+            results = ddg(query, max_results=max_results)
+            for item in (results or []):
+                url = item.get("href") or item.get("url") or item.get("link") or ""
+                if url and "crunchbase.com" in url:
+                    urls.append(url)
+            time.sleep(1.0)
     except Exception as exc:
         logging.warning("Crunchbase search failed: %s", exc)
     return list(dict.fromkeys(urls))
@@ -1002,11 +1002,11 @@ def _extract_search_urls(soup, base=None):
 def search_duckduckgo(query, max_results=RESULTS_PER_QUERY):
     urls = []
     try:
-        with ddg as ddgs:
-            for item in ddgs.text(query, max_results=max_results):
-                url = item.get("href") or item.get("url")
-                if url:
-                    urls.append(url)
+        results = ddg(query, max_results=max_results)
+        for item in (results or []):
+            url = item.get("href") or item.get("url") or item.get("link") or ""
+            if url:
+                urls.append(url)
     except Exception:
         pass
     return urls
@@ -1529,11 +1529,10 @@ class Collector:
         query, category = query_pair
         local = set()
         try:
-            with ddg as ddgs:
-                results = list(ddgs.text(query, max_results=RESULTS_PER_QUERY))
+            results = ddg(query, max_results=RESULTS_PER_QUERY)
             urls = []
-            for r in results:
-                url = r.get("href") or r.get("url") or ""
+            for r in (results or []):
+                url = r.get("href") or r.get("url") or r.get("link") or ""
                 if url and not any(s in url for s in [
                     "facebook.com", "instagram.com", "twitter.com", "x.com",
                     "youtube.com", "tiktok.com", "pinterest.com",
