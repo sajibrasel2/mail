@@ -1,6 +1,4 @@
----
 deployment:
   tasks:
-    - export:
-        from: .
-        to: /home/techandc/public_html/mail/
+    - export DEPLOYPATH=/home/techandc/public_html/mail/
+    - /bin/cp -R * $DEPLOYPATH

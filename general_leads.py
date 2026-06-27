@@ -21,7 +21,7 @@ from urllib.parse import quote_plus, urlparse, urljoin
 
 import requests
 from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
+from duckduckgo_search import ddg
 import mysql.connector
 
 try:
@@ -680,7 +680,7 @@ def search_crunchbase_pages(keywords=None, max_results=20):
         keywords = ["startup", "founder", "technology", "software"]
     urls = []
     try:
-        with DDGS() as ddgs:
+        with ddg as ddgs:
             for keyword in keywords:
                 query = f'site:crunchbase.com "{keyword}" "email"'
                 for item in ddgs.text(query, max_results=max_results):
@@ -1002,7 +1002,7 @@ def _extract_search_urls(soup, base=None):
 def search_duckduckgo(query, max_results=RESULTS_PER_QUERY):
     urls = []
     try:
-        with DDGS() as ddgs:
+        with ddg as ddgs:
             for item in ddgs.text(query, max_results=max_results):
                 url = item.get("href") or item.get("url")
                 if url:
@@ -1529,7 +1529,7 @@ class Collector:
         query, category = query_pair
         local = set()
         try:
-            with DDGS() as ddgs:
+            with ddg as ddgs:
                 results = list(ddgs.text(query, max_results=RESULTS_PER_QUERY))
             urls = []
             for r in results:

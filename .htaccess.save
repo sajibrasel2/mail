@@ -1,0 +1,24 @@
+PassengerEnabled On
+PassengerAppType wsgi
+PassengerStartupFile passenger_wsgi.py
+PassengerPython /usr/bin/python3
+
+RewriteEngine On
+RewriteRule ^(.*)$ http://127.0.0.1:5000/$1 [P,L]PassengerEnabled On
+PassengerAppType wsgi
+PassengerStartupFile passenger_wsgi.py
+PassengerPython /usr/bin/python3
+
+RewriteEngine On
+RewriteRule ^(.*)$ http://127.0.0.1:5000/$1 [P,L]PassengerEnabled On
+PassengerAppType wsgi
+PassengerStartupFile passenger_wsgi.py
+PassengerEnabled On
+PassengerAppType wsgi
+PassengerStartupFile passenger_wsgi.py
+PassengerPython /usr/bin/python3
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(.*)$ http://127.0.0.1:5000/$1 [P,L]
+</IfModule>
