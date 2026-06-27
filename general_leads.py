@@ -24,10 +24,10 @@ from bs4 import BeautifulSoup
 # DuckDuckGo search compatibility: try multiple import styles across versions
 ddg = None
 try:
-    from ddgs import DDGS
+    from duckduckgo_search import ddg as _ddg
     def ddg(query, max_results=25):
         try:
-            return list(DDGS().text(query, max_results=max_results))
+            return _ddg(query, max_results=max_results)
         except Exception:
             return []
 except Exception:
@@ -39,7 +39,15 @@ except Exception:
             except Exception:
                 return []
     except Exception:
-        ddg = None
+        try:
+            from ddgs import DDGS
+            def ddg(query, max_results=25):
+                try:
+                    return list(DDGS().text(query, max_results=max_results))
+                except Exception:
+                    return []
+        except Exception:
+            ddg = None
 import mysql.connector
 
 try:
