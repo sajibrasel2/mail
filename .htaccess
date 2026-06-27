@@ -1,10 +1,4 @@
-PassengerEnabled on
-PassengerAppRoot /home/techandc/public_html/mail
-PassengerBaseURI /mail
-PassengerPython /usr/bin/python3
-PassengerStartupFile passenger_wsgi.py
-
-# Serve existing files and directories directly
+# Route all non-file/directory requests to the PHP proxy index script.
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /mail/
