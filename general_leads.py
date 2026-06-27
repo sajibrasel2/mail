@@ -203,6 +203,9 @@ REQUEST_TIMEOUT = 20
 DELAY_MIN = 2
 DELAY_MAX = 10
 MAX_RETRIES = 5
+DDG_RETRIES = 3
+DDG_RETRY_DELAY = 3
+DDG_SEARCH_TIMEOUT = 30
 
 # ============================================================
 # USER-AGENTS
@@ -698,8 +701,8 @@ def search_crunchbase_pages(keywords=None, max_results=20):
     try:
         for keyword in keywords:
             query = f'site:crunchbase.com "{keyword}" "email"'
-            results = ddg(query, max_results=max_results)
-            for item in (results or []):
+            results = _ddg_search(query, max_results=max_results)
+            for item in results:
                 url = item.get("href") or item.get("url") or item.get("link") or ""
                 if url and "crunchbase.com" in url:
                     urls.append(url)
@@ -1015,16 +1018,31 @@ def _extract_search_urls(soup, base=None):
     return urls
 
 
+def _ddg_search(query, max_results=RESULTS_PER_QUERY):
+    urls = []
+    if not ddg:
+        return urls
+    for attempt in range(1, DDG_RETRIES + 1):
+        try:
+            try:
+                results = ddg(query, max_results=max_results, timeout=DDG_SEARCH_TIMEOUT)
+            except TypeError:
+                results = ddg(query, max_results=max_results)
+            return list(results or [])
+        except Exception as exc:
+            logging.warning("DuckDuckGo query attempt %d/%d failed: %s", attempt, DDG_RETRIES, exc)
+            if attempt < DDG_RETRIES:
+                time.sleep(DDG_RETRY_DELAY)
+    return []
+
+
 def search_duckduckgo(query, max_results=RESULTS_PER_QUERY):
     urls = []
-    try:
-        results = ddg(query, max_results=max_results)
-        for item in (results or []):
-            url = item.get("href") or item.get("url") or item.get("link") or ""
-            if url:
-                urls.append(url)
-    except Exception:
-        pass
+    results = _ddg_search(query, max_results=max_results)
+    for item in results:
+        url = item.get("href") or item.get("url") or item.get("link") or ""
+        if url:
+            urls.append(url)
     return urls
 
 
@@ -1635,6 +1653,7 @@ def main():
         choices=CATEGORY_KEYS,
         help="Run a category-specific campaign: gaming, marketing, business, freelancer, online-income, affiliate-marketers, side-hustle, blogger, all",
     )
+    parser.add_argument("--skip-github", action="store_true", help="Skip GitHub public email collection")
     args = parser.parse_args()
 
     if args.report:
@@ -1657,7 +1676,9 @@ def main():
     logging.info("Loaded %d existing emails from DB", len(KNOWN_EMAILS))
 
     github_saved = 0
-    if GITHUB_PAT:
+    if args.skip_github:
+        print("\nSkipping GitHub public collection (--skip-github).")
+    elif GITHUB_PAT:
         print("\nCollecting public GitHub emails...")
         github_saved = collect_github_public_emails()
         print(f"GitHub saved: {github_saved} leads")
