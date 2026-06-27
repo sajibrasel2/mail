@@ -215,6 +215,7 @@ RESULTS_PER_QUERY = 25
 SAVE_BATCH = 1000
 BACKUP_BATCH = 1000
 REQUEST_TIMEOUT = 20
+CRUNCHBASE_TIMEOUT = 10
 DELAY_MIN = 2
 DELAY_MAX = 10
 MAX_RETRIES = 5
@@ -743,7 +744,7 @@ def collect_crunchbase_public_emails(keywords=None, category="all"):
     urls = search_crunchbase_pages(keywords)
     for url in urls:
         try:
-            resp = requests.get(url, headers=_headers(), timeout=20)
+            resp = requests.get(url, headers=_headers(), timeout=CRUNCHBASE_TIMEOUT)
             resp.raise_for_status()
             soup = BeautifulSoup(resp.text, "html.parser")
             emails = _emails_from_soup(soup)
@@ -1696,6 +1697,7 @@ def main():
         help="Run a category-specific campaign: gaming, marketing, business, freelancer, online-income, affiliate-marketers, side-hustle, blogger, all",
     )
     parser.add_argument("--skip-github", action="store_true", help="Skip GitHub public email collection")
+    parser.add_argument("--skip-crunchbase", action="store_true", help="Skip Crunchbase public email collection")
     parser.add_argument(
         "--engine",
         type=str,
@@ -1734,8 +1736,12 @@ def main():
     else:
         print("\nGITHUB_PAT not set; skipping GitHub public collection.")
 
-    crunchbase_saved = collect_crunchbase_public_emails(category=args.category)
-    print(f"Crunchbase saved: {crunchbase_saved} leads")
+    crunchbase_saved = 0
+    if args.skip_crunchbase:
+        print("\nSkipping Crunchbase public collection (--skip-crunchbase).")
+    else:
+        crunchbase_saved = collect_crunchbase_public_emails(category=args.category)
+        print(f"Crunchbase saved: {crunchbase_saved} leads")
 
     search_saved = collect_search_engine_leads(category=args.category, engine=args.engine)
     print(f"Search engine saved ({args.engine}): {search_saved} leads")
