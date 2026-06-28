@@ -220,6 +220,8 @@ SEARCH_REQUEST_TIMEOUT = 30
 CRUNCHBASE_TIMEOUT = 10
 DELAY_MIN = 4
 DELAY_MAX = 16
+SEARCH_DELAY_MIN = 5
+SEARCH_DELAY_MAX = 10
 MAX_RETRIES = 5
 DDG_RETRIES = 3
 DDG_RETRY_DELAY = 3
@@ -272,6 +274,13 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/16.6 Safari/605.1.15",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36",
+]
+BING_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edge/125.0.0.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 Version/17.5 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0",
 ]
 
 # ============================================================
@@ -945,9 +954,11 @@ DEEP_SLUGS = [
 ]
 
 
-def _headers():
+def _headers(user_agent_list=None):
+    if user_agent_list is None:
+        user_agent_list = USER_AGENTS
     return {
-        "User-Agent": random.choice(USER_AGENTS),
+        "User-Agent": random.choice(user_agent_list),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.8",
         "Accept-Encoding": "gzip, deflate",
@@ -987,12 +998,12 @@ def _extract_emails_from_text(text):
     return found
 
 
-def _get_url(url, allow_redirects=True, timeout=None, log_prefix=None):
+def _get_url(url, allow_redirects=True, timeout=None, log_prefix=None, user_agent_list=None):
     if timeout is None:
         timeout = REQUEST_TIMEOUT
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            resp = requests.get(url, timeout=timeout, headers=_headers(), allow_redirects=allow_redirects)
+            resp = requests.get(url, timeout=timeout, headers=_headers(user_agent_list), allow_redirects=allow_redirects)
             resp.raise_for_status()
             if log_prefix:
                 logging.debug("%s request succeeded: %s status=%s length=%s attempt=%d", log_prefix, url, resp.status_code, len(resp.text or ""), attempt)
@@ -1237,6 +1248,10 @@ def search_bing(query, max_results=RESULTS_PER_QUERY):
                 "h2 a",
                 ".b_algo h2 a",
                 "a[href*='bing.com/ck/a']",
+                "a[href*='www.bing.com/aclick']",
+                "a[href*='/aclick?']",
+                "a[href*='rd?']",
+                "a[href*='/search?q=']",
             ]
             parsed_links = []
             for selector in selectors:
@@ -1253,7 +1268,7 @@ def search_bing(query, max_results=RESULTS_PER_QUERY):
             if not parsed_links:
                 for link in soup.find_all("a", href=True):
                     href = link.get("href", "")
-                    if href.startswith("http"):
+                    if href.startswith("http") or href.startswith("/"):
                         parsed_links.append(href)
                 logging.info("[search_bing] fallback extracted %d links for query=%r", len(parsed_links), query)
 
