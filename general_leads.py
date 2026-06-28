@@ -17,7 +17,7 @@ import logging
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter
-from urllib.parse import quote_plus, urlparse, urljoin
+from urllib.parse import quote_plus, parse_qs, urlparse, urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -1063,14 +1063,18 @@ def _emails_from_url(url):
         return set()
     if any(url.lower().endswith(ext) for ext in (".pdf", ".csv", ".txt", ".xls", ".xlsx", ".doc", ".docx")):
         content = _download_file(url)
-        return _parse_file_bytes(content, url)
+        emails = _parse_file_bytes(content, url)
+        logging.info("_emails_from_url: extracted %d emails from %s", len(emails), url[:200])
+        return emails
     try:
         soup = _soup(url)
         emails = _emails_from_soup(soup)
         if url.endswith(".xml") or url.endswith(".rss"):
             emails.update(_extract_emails_from_text(soup.get_text(separator=" ")))
+        logging.info("_emails_from_url: extracted %d emails from %s", len(emails), url[:200])
         return emails
-    except Exception:
+    except Exception as exc:
+        logging.debug("_emails_from_url: failed for %s: %s", url[:200], exc)
         return set()
 
 
@@ -1126,6 +1130,33 @@ def search_google(query, max_results=RESULTS_PER_QUERY):
     return urls
 
 
+def _resolve_bing_redirect(href, base_url=None):
+    if not href:
+        return None
+    if href.startswith("/"):
+        href = urljoin(base_url or "https://www.bing.com", href)
+    if "bing.com/ck/a" not in href:
+        return href
+
+    try:
+        parsed = urlparse(href)
+        params = parse_qs(parsed.query)
+        for key in ("u", "url", "q"):
+            if key in params and params[key]:
+                decoded = params[key][0]
+                if decoded.startswith("http"):
+                    return decoded
+        resp = _get_url(href)
+        if resp is None:
+            return None
+        final_url = getattr(resp, "url", None)
+        if final_url and final_url.startswith("http"):
+            return final_url
+    except Exception:
+        pass
+    return None
+
+
 def search_bing(query, max_results=RESULTS_PER_QUERY):
     urls = []
     url = f"https://www.bing.com/search?q={quote_plus(query)}"
@@ -1173,10 +1204,21 @@ def search_bing(query, max_results=RESULTS_PER_QUERY):
                         parsed_links.append(href)
                 logging.info("[search_bing] fallback extracted %d links for query=%r", len(parsed_links), query)
 
-            urls = parsed_links[:max_results]
-            logging.info("[search_bing] found %d links for query=%r", len(urls), query)
+            resolved_urls = []
+            for href in parsed_links:
+                final_url = _resolve_bing_redirect(href, base_url=url)
+                if final_url and final_url.startswith("http") and "bing.com" not in urlparse(final_url).netloc.lower():
+                    resolved_urls.append(final_url)
+                elif final_url:
+                    resolved_urls.append(final_url)
+            if not resolved_urls and search_duckduckgo:
+                logging.info("[search_bing] no resolved Bing URLs, falling back to DuckDuckGo for query=%r", query)
+                resolved_urls = search_duckduckgo(query, max_results=max_results)
+
+            urls = resolved_urls[:max_results]
+            logging.info("[search_bing] found %d resolved links for query=%r", len(urls), query)
             if urls:
-                logging.info("[search_bing] first result=%s", urls[0][:200])
+                logging.info("[search_bing] first resolved result=%s", urls[0][:200])
             else:
                 snippet = raw_html[:2000].replace("\n", " ").replace("\r", " ")
                 logging.info("[search_bing] no links found; HTML sample=%s", snippet)
