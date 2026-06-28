@@ -217,8 +217,8 @@ SAVE_BATCH = 1000
 BACKUP_BATCH = 1000
 REQUEST_TIMEOUT = 20
 CRUNCHBASE_TIMEOUT = 10
-DELAY_MIN = 2
-DELAY_MAX = 10
+DELAY_MIN = 4
+DELAY_MAX = 16
 MAX_RETRIES = 5
 DDG_RETRIES = 3
 DDG_RETRY_DELAY = 3
@@ -1108,13 +1108,37 @@ def _ddg_search(query, max_results=RESULTS_PER_QUERY):
     return []
 
 
+def _duckduckgo_html_search(query, max_results=RESULTS_PER_QUERY):
+    urls = []
+    try:
+        resp = _get_url(f"https://html.duckduckgo.com/html/?q={quote_plus(query)}")
+        if resp is None:
+            return urls
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for a in soup.select("a.result__a"):
+            href = a.get("href")
+            if href and href.startswith("http"):
+                urls.append(href)
+        if not urls:
+            for a in soup.select("a[href]"):
+                href = a.get("href").strip()
+                if href.startswith("http"):
+                    urls.append(href)
+    except Exception:
+        pass
+    return urls[:max_results]
+
+
 def search_duckduckgo(query, max_results=RESULTS_PER_QUERY):
     urls = []
     results = _ddg_search(query, max_results=max_results)
-    for item in results:
-        url = item.get("href") or item.get("url") or item.get("link") or ""
-        if url:
-            urls.append(url)
+    if results:
+        for item in results:
+            url = item.get("href") or item.get("url") or item.get("link") or ""
+            if url:
+                urls.append(url)
+    if not urls:
+        urls = _duckduckgo_html_search(query, max_results=max_results)
     return urls
 
 
@@ -1335,9 +1359,9 @@ def search_baidu(query, max_results=RESULTS_PER_QUERY):
 def search_all_engines(query, max_results=RESULTS_PER_QUERY, engine="all"):
     urls = set()
     
-    # Establish priority search order: Bing -> DuckDuckGo -> Google
+    # Establish priority search order: DuckDuckGo -> Bing -> Google
     if engine == "bing":
-        order = [search_bing, search_duckduckgo]
+        order = [search_duckduckgo, search_bing]
         if google_search:
             order.append(search_google)
     elif engine == "duckduckgo":
@@ -1345,7 +1369,7 @@ def search_all_engines(query, max_results=RESULTS_PER_QUERY, engine="all"):
     elif engine == "google":
         order = [search_google] if google_search else []
     else:  # "all" or any other value
-        order = [search_bing, search_duckduckgo]
+        order = [search_duckduckgo, search_bing]
         if google_search:
             order.append(search_google)
         extra_engines = [search_yahoo, search_yandex, search_qwant, search_startpage]
@@ -1355,28 +1379,32 @@ def search_all_engines(query, max_results=RESULTS_PER_QUERY, engine="all"):
     for engine_func in order:
         if not engine_func:
             continue
+        logging.info("[search_all_engines] trying engine %s for query=%r", engine_func.__name__, query)
         try:
             found = engine_func(query, max_results=max_results)
+            logging.info("[search_all_engines] engine %s returned %d URLs for query=%r", engine_func.__name__, len(found), query)
             if found:
                 urls.update(found)
                 results_found = True
                 break
-        except Exception:
-            pass
-        time.sleep(random.uniform(0.5, 1.5))
+        except Exception as exc:
+            logging.debug("[search_all_engines] engine %s failed for query=%r: %s", engine_func.__name__, query, exc)
+        time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
         
     # If no results were found from priority engines, and we are using "all", try extra engines
     if not results_found and engine == "all":
         for engine_func in extra_engines:
             if not engine_func:
                 continue
+            logging.info("[search_all_engines] trying fallback engine %s for query=%r", engine_func.__name__, query)
             try:
                 found = engine_func(query, max_results=max_results)
+                logging.info("[search_all_engines] fallback engine %s returned %d URLs for query=%r", engine_func.__name__, len(found), query)
                 if found:
                     urls.update(found)
-            except Exception:
-                pass
-            time.sleep(random.uniform(0.5, 1.5))
+            except Exception as exc:
+                logging.debug("[search_all_engines] fallback engine %s failed for query=%r: %s", engine_func.__name__, query, exc)
+            time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
             
     return list(urls)[: max_results * 3]
 
