@@ -216,6 +216,7 @@ RESULTS_PER_QUERY = 25
 SAVE_BATCH = 1000
 BACKUP_BATCH = 1000
 REQUEST_TIMEOUT = 20
+SEARCH_REQUEST_TIMEOUT = 30
 CRUNCHBASE_TIMEOUT = 10
 DELAY_MIN = 4
 DELAY_MAX = 16
@@ -223,7 +224,10 @@ MAX_RETRIES = 5
 DDG_RETRIES = 3
 DDG_RETRY_DELAY = 3
 DDG_SEARCH_TIMEOUT = 30
-COLLECTION_TIMEOUT = 900  # 15 min timeout per collection phase
+COLLECTION_TIMEOUT = 300  # 5 min timeout per collection phase
+
+SEARCH_ENGINE_FAILURES = {}
+SEARCH_ENGINE_FAILURE_LIMIT = 3
 
 
 def run_with_timeout(func, args=(), kwargs=None, timeout_sec=COLLECTION_TIMEOUT):
@@ -802,11 +806,15 @@ def collect_search_engine_leads(category="all", engine="all"):
     for i, (query_text, q_category) in enumerate(queries, 1):
         if i % 25 == 0 or i == 1:
             logging.info("collect_search_engine_leads: query %d/%d [saved=%d]", i, len(queries), saved)
+        query_start = time.time()
         try:
             urls = search_all_engines(query_text, max_results=RESULTS_PER_QUERY, engine=engine)
         except Exception as exc:
-            logging.debug("search_all_engines failed for query %d: %s", i, exc)
+            elapsed = time.time() - query_start
+            logging.debug("search_all_engines failed for query %d after %.2fs: %s", i, elapsed, exc)
             urls = []
+        elapsed = time.time() - query_start
+        logging.info("collect_search_engine_leads: query %d/%d took %.2fs and returned %d URLs", i, len(queries), elapsed, len(urls))
         if not urls:
             logging.debug("Query %d returned 0 URLs: %s", i, query_text[:80])
         for url in urls:
@@ -979,14 +987,25 @@ def _extract_emails_from_text(text):
     return found
 
 
-def _get_url(url, allow_redirects=True):
-    for attempt in range(MAX_RETRIES):
+def _get_url(url, allow_redirects=True, timeout=None, log_prefix=None):
+    if timeout is None:
+        timeout = REQUEST_TIMEOUT
+    for attempt in range(1, MAX_RETRIES + 1):
         try:
-            resp = requests.get(url, timeout=REQUEST_TIMEOUT, headers=_headers(), allow_redirects=allow_redirects)
+            resp = requests.get(url, timeout=timeout, headers=_headers(), allow_redirects=allow_redirects)
             resp.raise_for_status()
+            if log_prefix:
+                logging.debug("%s request succeeded: %s status=%s length=%s attempt=%d", log_prefix, url, resp.status_code, len(resp.text or ""), attempt)
             return resp
-        except Exception:
-            if attempt < MAX_RETRIES - 1:
+        except requests.Timeout as exc:
+            if log_prefix:
+                logging.warning("%s request timed out: %s attempt=%d/%d", log_prefix, url, attempt, MAX_RETRIES)
+            if attempt < MAX_RETRIES:
+                time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
+        except Exception as exc:
+            if log_prefix:
+                logging.debug("%s request failed: %s attempt=%d/%d error=%s", log_prefix, url, attempt, MAX_RETRIES, exc)
+            if attempt < MAX_RETRIES:
                 time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
     return None
 
@@ -1111,10 +1130,15 @@ def _ddg_search(query, max_results=RESULTS_PER_QUERY):
 def _duckduckgo_html_search(query, max_results=RESULTS_PER_QUERY):
     urls = []
     try:
-        resp = _get_url(f"https://html.duckduckgo.com/html/?q={quote_plus(query)}")
+        search_url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
+        logging.debug("[search_duckduckgo] request URL=%s", search_url)
+        resp = _get_url(search_url, timeout=SEARCH_REQUEST_TIMEOUT, log_prefix="[search_duckduckgo]")
         if resp is None:
+            logging.warning("[search_duckduckgo] no response for query=%r", query)
             return urls
-        soup = BeautifulSoup(resp.text, "html.parser")
+        raw_html = resp.text or ""
+        logging.debug("[search_duckduckgo] response status=%s length=%s", resp.status_code, len(raw_html))
+        soup = BeautifulSoup(raw_html, "html.parser")
         for a in soup.select("a.result__a"):
             href = a.get("href")
             if href and href.startswith("http"):
@@ -1124,8 +1148,11 @@ def _duckduckgo_html_search(query, max_results=RESULTS_PER_QUERY):
                 href = a.get("href").strip()
                 if href.startswith("http"):
                     urls.append(href)
-    except Exception:
-        pass
+        logging.info("[search_duckduckgo] extracted %d URLs from HTML DuckDuckGo for query=%r", len(urls), query)
+    except Exception as exc:
+        snippet = raw_html[:1000].replace("\n", " ").replace("\r", " ") if 'raw_html' in locals() else ''
+        logging.exception("[search_duckduckgo] parse failed for query=%r: %s", query, exc)
+        logging.debug("[search_duckduckgo] raw HTML sample=%s", snippet)
     return urls[:max_results]
 
 
@@ -1194,23 +1221,15 @@ def _resolve_bing_redirect(href, base_url=None):
 def search_bing(query, max_results=RESULTS_PER_QUERY):
     urls = []
     url = f"https://www.bing.com/search?q={quote_plus(query)}"
-    logging.info("[search_bing] sending request for query=%r", query)
-    logging.info("[search_bing] URL=%s", url)
+    logging.debug("[search_bing] request URL=%s", url)
     try:
-        resp = _get_url(url)
+        resp = _get_url(url, timeout=SEARCH_REQUEST_TIMEOUT, log_prefix="[search_bing]")
         if resp is None:
             logging.warning("[search_bing] no response received for query=%r", query)
             return urls
 
-        status_code = getattr(resp, "status_code", "unknown")
         raw_html = resp.text or ""
-        logging.info("[search_bing] response status=%s for query=%r", status_code, query)
-        logging.info("[search_bing] response length=%d for query=%r", len(raw_html), query)
-        logging.info(
-            "[search_bing] raw HTML snippet for query=%r: %s",
-            query,
-            raw_html[:500].replace("\n", " ").replace("\r", " "),
-        )
+        logging.debug("[search_bing] response status=%s length=%d", resp.status_code, len(raw_html))
         try:
             soup = BeautifulSoup(raw_html, "html.parser")
             selectors = [
@@ -1257,13 +1276,11 @@ def search_bing(query, max_results=RESULTS_PER_QUERY):
                 snippet = raw_html[:2000].replace("\n", " ").replace("\r", " ")
                 logging.info("[search_bing] no links found; HTML sample=%s", snippet)
         except Exception as parse_exc:
-            logging.exception("[search_bing] parsing failed for query=%r", query)
-            logging.error("[search_bing] parse error details: %s", parse_exc)
-            snippet = raw_html[:2000].replace("\n", " ").replace("\r", " ")
-            logging.info("[search_bing] parse error HTML sample=%s", snippet)
+            snippet = raw_html[:1000].replace("\n", " ").replace("\r", " ")
+            logging.exception("[search_bing] parse failed for query=%r: %s", query, parse_exc)
+            logging.debug("[search_bing] raw HTML sample=%s", snippet)
     except Exception as exc:
-        logging.exception("[search_bing] request failed for query=%r", query)
-        logging.error("[search_bing] request error details: %s", exc)
+        logging.exception("[search_bing] request failed for query=%r", query, exc)
     return urls[:max_results]
 
 
@@ -1379,16 +1396,26 @@ def search_all_engines(query, max_results=RESULTS_PER_QUERY, engine="all"):
     for engine_func in order:
         if not engine_func:
             continue
-        logging.info("[search_all_engines] trying engine %s for query=%r", engine_func.__name__, query)
+        engine_name = engine_func.__name__
+        if SEARCH_ENGINE_FAILURES.get(engine_name, 0) >= SEARCH_ENGINE_FAILURE_LIMIT:
+            logging.warning("[search_all_engines] skipping engine %s due to repeated failures", engine_name)
+            continue
+        logging.info("[search_all_engines] trying engine %s for query=%r", engine_name, query)
+        start_time = time.time()
         try:
             found = engine_func(query, max_results=max_results)
-            logging.info("[search_all_engines] engine %s returned %d URLs for query=%r", engine_func.__name__, len(found), query)
+            elapsed = time.time() - start_time
+            logging.info("[search_all_engines] engine %s returned %d URLs for query=%r in %.2fs", engine_name, len(found), query, elapsed)
             if found:
                 urls.update(found)
                 results_found = True
+                SEARCH_ENGINE_FAILURES[engine_name] = 0
                 break
+            SEARCH_ENGINE_FAILURES[engine_name] = SEARCH_ENGINE_FAILURES.get(engine_name, 0) + 1
         except Exception as exc:
-            logging.debug("[search_all_engines] engine %s failed for query=%r: %s", engine_func.__name__, query, exc)
+            elapsed = time.time() - start_time
+            SEARCH_ENGINE_FAILURES[engine_name] = SEARCH_ENGINE_FAILURES.get(engine_name, 0) + 1
+            logging.debug("[search_all_engines] engine %s failed for query=%r after %.2fs: %s", engine_name, query, elapsed, exc)
         time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
         
     # If no results were found from priority engines, and we are using "all", try extra engines
@@ -1396,14 +1423,25 @@ def search_all_engines(query, max_results=RESULTS_PER_QUERY, engine="all"):
         for engine_func in extra_engines:
             if not engine_func:
                 continue
-            logging.info("[search_all_engines] trying fallback engine %s for query=%r", engine_func.__name__, query)
+            engine_name = engine_func.__name__
+            if SEARCH_ENGINE_FAILURES.get(engine_name, 0) >= SEARCH_ENGINE_FAILURE_LIMIT:
+                logging.warning("[search_all_engines] skipping fallback engine %s due to repeated failures", engine_name)
+                continue
+            logging.info("[search_all_engines] trying fallback engine %s for query=%r", engine_name, query)
+            start_time = time.time()
             try:
                 found = engine_func(query, max_results=max_results)
-                logging.info("[search_all_engines] fallback engine %s returned %d URLs for query=%r", engine_func.__name__, len(found), query)
+                elapsed = time.time() - start_time
+                logging.info("[search_all_engines] fallback engine %s returned %d URLs for query=%r in %.2fs", engine_name, len(found), query, elapsed)
                 if found:
                     urls.update(found)
+                    SEARCH_ENGINE_FAILURES[engine_name] = 0
+                else:
+                    SEARCH_ENGINE_FAILURES[engine_name] = SEARCH_ENGINE_FAILURES.get(engine_name, 0) + 1
             except Exception as exc:
-                logging.debug("[search_all_engines] fallback engine %s failed for query=%r: %s", engine_func.__name__, query, exc)
+                elapsed = time.time() - start_time
+                SEARCH_ENGINE_FAILURES[engine_name] = SEARCH_ENGINE_FAILURES.get(engine_name, 0) + 1
+                logging.debug("[search_all_engines] fallback engine %s failed for query=%r after %.2fs: %s", engine_name, query, elapsed, exc)
             time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
             
     return list(urls)[: max_results * 3]
