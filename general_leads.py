@@ -842,12 +842,10 @@ def collect_search_engine_leads(category="all", engine="all"):
 
 def collect_public_files(category="all"):
     file_queries = [
-        'filetype:pdf "email" "contact"',
-        'filetype:csv "email" "contact"',
-        'filetype:txt "@gmail.com" "email"',
-        'filetype:xlsx "email" "contact"',
-        'filetype:docx "email" "cv"',
-        'filetype:doc "email" "resume"',
+        '"email" "@gmail.com" "contact" "CEO"',
+        '"email" "@yahoo.com" "manager"',
+        '"resume" "@gmail.com" "experience"',
+        '"portfolio" "@gmail.com" "designer"',
     ]
     saved = 0
     for query_text in file_queries:
@@ -1503,15 +1501,13 @@ def build_queries(category="all"):
     def add(query_text, query_category=None):
         q.append((query_text, query_category))
 
-    q = [
-        ('site:linkedin.com/in contact email', 'Business'),
-        ('site:github.com email', 'Business'),
-        ('site:about.me contact', 'Business'),
-        ('site:medium.com "@"', 'Business'),
-    ]
-    return q
+    q = []
 
     if category == "all":
+        add('"email" "@gmail.com" "contact" "CEO"', "Business")
+        add('"email" "@yahoo.com" "manager"', "Business")
+        add('"resume" "@gmail.com" "experience"', "Business")
+        add('"portfolio" "@gmail.com" "designer"', "Business")
         for p in ("linkedin.com/in", "linkedin.com/company", "crunchbase.com",
                   "angel.co", "github.com", "about.me", "behance.net",
                   "dribbble.com", "medium.com", "wordpress.com",
@@ -1688,21 +1684,6 @@ def build_queries(category="all"):
         ])
 
         q.extend([
-            ('filetype:pdf "email" "@gmail.com" "CV" "engineer"', None),
-            ('filetype:pdf "email" "@gmail.com" "resume" "manager"', None),
-            ('filetype:pdf "email" "@" "curriculum" "vitae" "professor"', None),
-            ('filetype:pdf "email" "@" "resume" "director" "executive"', None),
-            ('filetype:pdf "email" "@gmail.com" "resume" "developer"', None),
-            ('filetype:pdf "email" "@gmail.com" "resume" "designer"', None),
-            ('filetype:pdf "email" "@gmail.com" "resume" "consultant"', None),
-            ('filetype:pdf "email" "@gmail.com" "resume" "scientist"', None),
-            ('filetype:pdf "email" "@gmail.com" "resume" "analyst"', None),
-            ('filetype:pdf "email" "@gmail.com" "resume" "architect"', None),
-            ('filetype:pdf "email" "@gmail.com" "resume" "professor"', None),
-            ('filetype:pdf "email" "@gmail.com" "resume" "teacher"', None),
-            ('filetype:pdf "email" "@gmail.com" "resume" "nurse"', None),
-            ('filetype:pdf "email" "@gmail.com" "resume" "accountant"', None),
-            ('filetype:pdf "email" "@gmail.com" "resume" "attorney"', None),
             ('"resume" "@gmail.com" "CEO" "experience"', None),
             ('"resume" "@gmail.com" "senior" "manager" "technology"', None),
             ('"resume" "@gmail.com" "PhD" "research" "university"', None),
