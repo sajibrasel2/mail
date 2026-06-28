@@ -14,6 +14,7 @@ import random
 import threading
 import socket
 import logging
+import base64
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter
@@ -1141,19 +1142,28 @@ def _resolve_bing_redirect(href, base_url=None):
     try:
         parsed = urlparse(href)
         params = parse_qs(parsed.query)
-        for key in ("u", "url", "q"):
-            if key in params and params[key]:
-                decoded = params[key][0]
-                if decoded.startswith("http"):
-                    return decoded
+        if "u" in params and params["u"]:
+            encoded = params["u"][0]
+            for candidate in (encoded, encoded[2:] if encoded.startswith("a1") else encoded):
+                try:
+                    padded = candidate + "=" * (-len(candidate) % 4)
+                    decoded = base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8", errors="ignore")
+                    if decoded.startswith("http"):
+                        logging.info("[search_bing] resolved Bing redirect from %s to %s", href, decoded)
+                        return decoded
+                except Exception:
+                    continue
+
+        # Fallback: follow the redirect if the encoded u parameter failed.
         resp = _get_url(href)
         if resp is None:
             return None
         final_url = getattr(resp, "url", None)
         if final_url and final_url.startswith("http"):
+            logging.info("[search_bing] followed redirect from %s to %s", href, final_url)
             return final_url
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.debug("[search_bing] redirect resolution failed for %s: %s", href, exc)
     return None
 
 
