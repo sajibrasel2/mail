@@ -1422,7 +1422,13 @@ def build_queries(category="all"):
     def add(query_text, query_category=None):
         q.append((query_text, query_category))
 
-    q = []
+    q = [
+        ('site:linkedin.com/in contact email', 'Business'),
+        ('site:github.com email', 'Business'),
+        ('site:about.me contact', 'Business'),
+        ('site:medium.com "@"', 'Business'),
+    ]
+    return q
 
     if category == "all":
         for p in ("linkedin.com/in", "linkedin.com/company", "crunchbase.com",
