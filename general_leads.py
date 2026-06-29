@@ -211,8 +211,8 @@ CRUNCHBASE_CATEGORY_KEYWORDS = {
 
 MX_CACHE = {}
 
-THREADS = 10
-RESULTS_PER_QUERY = 15
+THREADS = 15
+RESULTS_PER_QUERY = 20
 SAVE_BATCH = 1000
 BACKUP_BATCH = 1000
 REQUEST_TIMEOUT = 20
@@ -1569,14 +1569,30 @@ def build_queries(category="all"):
 
     if category == "all":
         add('site:github.com "email" "@gmail.com"', "Personal")
+        add('site:github.com "email" "@yahoo.com"', "Personal")
+        add('site:github.com "email" "@outlook.com"', "Personal")
+        add('site:github.io "email" "@gmail.com"', "Personal")
+        add('"github.com" "contact" "@gmail.com"', "Personal")
         add('site:linkedin.com/in "email" "@gmail.com"', "Personal")
+        add('site:linkedin.com/in "contact" "@gmail.com"', "Personal")
+        add('"linkedin.com" "resume" "@gmail.com"', "Personal")
         add('site:reddit.com "email" "@gmail.com"', "Personal")
+        add('site:reddit.com "contact" "@gmail.com"', "Personal")
+        add('"reddit.com" "message" "@gmail.com"', "Personal")
         add('site:quora.com "email" "@gmail.com"', "Personal")
+        add('site:quora.com "profile" "@gmail.com"', "Personal")
         add('site:medium.com "email" "@gmail.com"', "Personal")
-        add('"student" "@gmail.com" "resume"', "Student")
-        add('"developer" "@gmail.com" "portfolio"', "Developer")
-        add('"gamer" "@gmail.com" "steam"', "Gamer")
-        add('"freelancer" "@gmail.com" "upwork"', "Freelancer")
+        add('site:medium.com "contact" "@gmail.com"', "Personal")
+        add('site:stackoverflow.com "email" "@gmail.com"', "Personal")
+        add('site:stackoverflow.com "profile" "@gmail.com"', "Personal")
+        add('site:behance.net "email" "@gmail.com"', "Personal")
+        add('site:dribbble.com "email" "@gmail.com"', "Personal")
+        add('site:about.me "email" "@gmail.com"', "Personal")
+        add('"github.com" "email" "@gmail.com" "issue"', "Personal")
+        add('"github.com" "email" "@gmail.com" "comment"', "Personal")
+        add('"resume" "@gmail.com" "experience"', "Personal")
+        add('"portfolio" "@gmail.com" "developer"', "Personal")
+        add('"student" "@gmail.com" "university"', "Personal")
         add('"student" "@yahoo.com" "college"', "Student")
         add('"developer" "@outlook.com" "github"', "Developer")
         add('"gamer" "@protonmail.com" "discord"', "Gamer")
