@@ -1,12 +1,15 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 import os
 import json
+import time
+import html
 import mysql.connector
 from dotenv import load_dotenv
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime, date
 from functools import wraps
+from urllib.parse import quote
 
 load_dotenv()
 
@@ -47,6 +50,7 @@ MAIL_USE_SSL = os.getenv('MAIL_USE_SSL')
 MAIL_USERNAME = os.getenv('MAIL_USERNAME')
 MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
 MAIL_DEFAULT_SENDER = os.getenv('MAIL_DEFAULT_SENDER')
+APP_BASE_URL = os.getenv('APP_BASE_URL', 'http://localhost').rstrip('/')
 
 SMTP_SERVER = MAIL_SERVER or os.getenv('SMTP_SERVER', 'localhost')
 SMTP_PORT = int(MAIL_PORT or os.getenv('SMTP_PORT', '25'))
@@ -123,21 +127,24 @@ CATEGORY_BADGES = {
 DEFAULT_LINK_1 = 'https://omg10.com/4/11017767'
 DEFAULT_LINK_2 = 'https://www.effectivecpmnetwork.com/mgtqwzbp?key=5c4003e0ae2b0ebd387daded087bc9aa'
 
-DEFAULT_CAMPAIGN_SUBJECT = 'Quick opportunity for {{NAME}} — check this out'
+DEFAULT_CAMPAIGN_SUBJECT = 'A quick note for {{NAME}}'
 DEFAULT_CAMPAIGN_BODY = '''Hi {{NAME}},
 
-I wanted to share a quick opportunity with you because your profile looks like a great fit.
+I came across your profile and thought I would reach out because your background stood out to me. I’m sharing a short, relevant resource in case it might be useful.
 
-This is not a generic pitch — I think you'll find these two links worth a look:
+If it’s relevant, feel free to take a look here:
+{{LINK1}}
 
-👉 Check out this amazing opportunity → {{LINK1}}
-👉 Don't miss out, click here to learn more → {{LINK2}}
+I also included a second option below in case one fits better:
+{{LINK2}}
 
-If you'd like, I can send a short summary of how this works in under 2 minutes.
+No pressure at all — just a genuine introduction in case it’s helpful.
 
-Best regards,
+Best,
 {{SENDER_NAME}}
-{{SENDER_EMAIL}}'''
+{{SENDER_EMAIL}}
+
+To unsubscribe: {{UNSUBSCRIBE_URL}}'''
 
 
 def login_required(f):
@@ -254,7 +261,11 @@ def update_campaign_config(subject, body, link1, link2, daily_limit):
         conn.close()
 
 
-def render_campaign_body(body_template, recipient_name, recipient_email, sender_name, sender_email, link1, link2):
+def build_unsubscribe_url(email):
+    return f"{APP_BASE_URL}/unsubscribe?email={quote(email or '', safe='')}"
+
+
+def render_campaign_body(body_template, recipient_name, recipient_email, sender_name, sender_email, link1, link2, unsubscribe_url=None):
     body = body_template
     body = body.replace('{{NAME}}', recipient_name or 'Friend')
     body = body.replace('{{EMAIL}}', recipient_email)
@@ -262,7 +273,25 @@ def render_campaign_body(body_template, recipient_name, recipient_email, sender_
     body = body.replace('{{SENDER_EMAIL}}', sender_email or SENDER_EMAIL)
     body = body.replace('{{LINK1}}', link1)
     body = body.replace('{{LINK2}}', link2)
+    body = body.replace('{{UNSUBSCRIBE_URL}}', unsubscribe_url or build_unsubscribe_url(recipient_email))
+    if '{{UNSUBSCRIBE_URL}}' not in body and 'unsubscribe' not in body.lower():
+        body = body + f"\n\nTo unsubscribe: {unsubscribe_url or build_unsubscribe_url(recipient_email)}"
     return body
+
+
+def build_html_email_body(text_body, unsubscribe_url=None):
+    safe_text = html.escape(text_body or '', quote=False)
+    safe_text = safe_text.replace('\n\n', '</p><p>').replace('\n', '<br>')
+    unsubscribe = html.escape(unsubscribe_url or '', quote=False)
+    return f"""<!DOCTYPE html>
+<html>
+  <body style=\"font-family: Arial, sans-serif; color: #222; line-height: 1.6;\">
+    <div style=\"max-width: 620px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 8px;\">
+      <p>{safe_text}</p>
+      <p style=\"margin-top: 16px; font-size: 13px; color: #666;\">To stop receiving these emails, <a href=\"{unsubscribe}\">unsubscribe here</a>.</p>
+    </div>
+  </body>
+</html>"""
 
 
 def log_send(email, category, status, subject, body, links):
@@ -279,12 +308,20 @@ def log_send(email, category, status, subject, body, links):
         conn.close()
 
 
-def send_email_smtp(to_email, subject, body):
+def send_email_smtp(to_email, subject, body, html_body=None, unsubscribe_url=None):
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = SENDER_EMAIL
     msg['To'] = to_email
+    msg['List-Unsubscribe'] = f'<{unsubscribe_url or build_unsubscribe_url(to_email)}>'
+    msg['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click'
+    msg['Precedence'] = 'bulk'
+    msg['Auto-Submitted'] = 'auto-generated'
     msg.set_content(body)
+    if html_body:
+        msg.add_alternative(html_body, subtype='html')
+    else:
+        msg.add_alternative(build_html_email_body(body, unsubscribe_url or build_unsubscribe_url(to_email)), subtype='html')
 
     if SMTP_PORT == 465:
         server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=30)
@@ -354,6 +391,37 @@ def select_daily_campaign_leads(max_leads=DAILY_EMAIL_LIMIT_DEFAULT):
         conn.close()
 
 
+def get_warmup_batch_size(today_sent, remaining):
+    if today_sent < 5:
+        return min(remaining, 5)
+    if today_sent < 15:
+        return min(remaining, 10)
+    return remaining
+
+
+@app.route('/unsubscribe')
+def unsubscribe():
+    email = (request.args.get('email') or '').strip().lower()
+    if email:
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("UPDATE github_leads SET status='Unsubscribed' WHERE email=%s", (email,))
+            conn.commit()
+        except Exception:
+            pass
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return "You have been unsubscribed. You will no longer receive these emails."
+
+
 def run_daily_campaign():
     today_sent = get_today_sent_count()
     config = get_campaign_config()
@@ -371,14 +439,16 @@ def run_daily_campaign():
     link2 = config['link2'] or DEFAULT_LINK_2
 
     remaining = daily_limit - today_sent
-    leads = select_daily_campaign_leads(max_leads=remaining)
+    batch_size = get_warmup_batch_size(today_sent, remaining)
+    leads = select_daily_campaign_leads(max_leads=batch_size)
     if not leads:
         return {'sent': 0, 'attempted': 0, 'message': 'No pending leads available.'}
 
     sent = 0
     attempted = 0
-    for lead in leads:
+    for index, lead in enumerate(leads):
         recipient_name = (lead.get('name') if isinstance(lead, dict) else None) or (lead.get('username') if isinstance(lead, dict) else None) or 'Friend'
+        unsubscribe_url = build_unsubscribe_url(lead['email'])
         personalized_subject = subject_template.replace('{{NAME}}', recipient_name)
         personalized_body = render_campaign_body(
             body_template,
@@ -388,10 +458,12 @@ def run_daily_campaign():
             SENDER_EMAIL,
             link1,
             link2,
+            unsubscribe_url=unsubscribe_url,
         )
+        personalized_html = build_html_email_body(personalized_body, unsubscribe_url)
         attempted += 1
         try:
-            send_email_smtp(lead['email'], personalized_subject, personalized_body)
+            send_email_smtp(lead['email'], personalized_subject, personalized_body, html_body=personalized_html, unsubscribe_url=unsubscribe_url)
             conn = get_db_connection()
             cur = conn.cursor()
             try:
@@ -404,6 +476,9 @@ def run_daily_campaign():
             sent += 1
         except Exception as exc:
             log_send(lead['email'], lead['category'] or 'Unknown', 'Failed', personalized_subject, personalized_body, json.dumps([link1, link2]))
+
+        if index < len(leads) - 1:
+            time.sleep(60)
 
     return {'sent': sent, 'attempted': attempted, 'message': f'{sent} emails sent.'}
 
