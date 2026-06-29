@@ -212,25 +212,25 @@ CRUNCHBASE_CATEGORY_KEYWORDS = {
 MX_CACHE = {}
 
 THREADS = 10
-RESULTS_PER_QUERY = 25
+RESULTS_PER_QUERY = 15
 SAVE_BATCH = 1000
 BACKUP_BATCH = 1000
 REQUEST_TIMEOUT = 20
 SEARCH_REQUEST_TIMEOUT = 30
 CRUNCHBASE_TIMEOUT = 10
-DELAY_MIN = 4
-DELAY_MAX = 16
+DELAY_MIN = 5
+DELAY_MAX = 10
 SEARCH_DELAY_MIN = 5
 SEARCH_DELAY_MAX = 10
 MAX_RETRIES = 5
 SEARCH_RETRY_ATTEMPTS = 3
-DDG_RETRIES = 3
+DDG_RETRIES = 4
 DDG_RETRY_DELAY = 3
 DDG_SEARCH_TIMEOUT = 30
-COLLECTION_TIMEOUT = 300  # 5 min timeout per collection phase
+COLLECTION_TIMEOUT = 600  # 10 min timeout per collection phase
 
 SEARCH_ENGINE_FAILURES = {}
-SEARCH_ENGINE_FAILURE_LIMIT = 3
+SEARCH_ENGINE_FAILURE_LIMIT = 2
 
 
 def run_with_timeout(func, args=(), kwargs=None, timeout_sec=COLLECTION_TIMEOUT):
@@ -966,9 +966,15 @@ def _headers(user_agent_list=None):
     }
 
 
+def _backoff_delay(attempt, base_delay=SEARCH_DELAY_MIN):
+    delay = min(30.0, base_delay * (2 ** (attempt - 1)))
+    return delay + random.uniform(0.5, 2.0)
+
+
 def _soup(url):
-    resp = requests.get(url, timeout=REQUEST_TIMEOUT, headers=_headers())
-    resp.raise_for_status()
+    resp = _get_url(url, timeout=REQUEST_TIMEOUT, log_prefix="[scrape]")
+    if resp is None:
+        raise requests.RequestException(f"Failed to fetch {url}")
     return BeautifulSoup(resp.text, "lxml")
 
 
@@ -1011,12 +1017,12 @@ def _get_url(url, allow_redirects=True, timeout=None, log_prefix=None, user_agen
             if log_prefix:
                 logging.warning("%s request timed out: %s attempt=%d/%d", log_prefix, url, attempt, MAX_RETRIES)
             if attempt < MAX_RETRIES:
-                time.sleep(random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX))
+                time.sleep(_backoff_delay(attempt, base_delay=SEARCH_DELAY_MIN))
         except Exception as exc:
             if log_prefix:
                 logging.debug("%s request failed: %s attempt=%d/%d error=%s", log_prefix, url, attempt, MAX_RETRIES, exc)
             if attempt < MAX_RETRIES:
-                time.sleep(random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX))
+                time.sleep(_backoff_delay(attempt, base_delay=SEARCH_DELAY_MIN))
     return None
 
 
@@ -1133,7 +1139,7 @@ def _ddg_search(query, max_results=RESULTS_PER_QUERY):
         except Exception as exc:
             logging.warning("DuckDuckGo query attempt %d/%d failed: %s", attempt, DDG_RETRIES, exc)
             if attempt < DDG_RETRIES:
-                time.sleep(DDG_RETRY_DELAY)
+                time.sleep(_backoff_delay(attempt, base_delay=DDG_RETRY_DELAY))
     return []
 
 
@@ -1925,7 +1931,7 @@ def main():
     parser.add_argument(
         "--engine",
         type=str,
-        default="all",
+        default="bing",
         choices=["google", "bing", "duckduckgo", "all"],
         help="Primary search engine to use for search engine lead collection",
     )
