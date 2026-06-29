@@ -322,6 +322,24 @@ TEMP_DOMAINS = {
     "discard.email", "trashymail.com", "sneakemail.com", "pookmail.com",
 }
 
+PERSONAL_EMAIL_DOMAINS = {
+    "gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "live.com",
+    "protonmail.com", "proton.me", "icloud.com", "aol.com", "mail.com",
+    "zoho.com", "yandex.com", "riseup.net", "gmx.com", "gmx.net",
+}
+
+GENERIC_EMAIL_LOCAL_PARTS = {
+    "info", "support", "contact", "admin", "sales", "hello", "team", "hr",
+    "careers", "career", "jobs", "job", "office", "service", "services",
+    "help", "marketing", "press", "media", "newsletter", "bounce", "abuse",
+    "alert", "complaints", "customerservice", "enquiries", "feedback",
+    "security", "webmaster", "postmaster", "noreply", "no-reply", "donotreply",
+    "sysadmin", "root", "safety", "signup", "enquiry", "trust", "corp",
+    "public", "reservations", "report", "request", "general", "inquiry",
+    "inquiries", "customercare", "returns", "review", "spam", "subscribe",
+    "developer", "student", "freelancer", "gamer", "resume", "portfolio",
+}
+
 
 def is_fake_email(email):
     lower = email.lower().strip()
@@ -330,6 +348,26 @@ def is_fake_email(email):
             return True
     domain = lower.split("@")[1] if "@" in lower else ""
     return domain in TEMP_DOMAINS
+
+
+def looks_like_personal_email(email):
+    lower = email.lower().strip()
+    if "@" not in lower or lower.count("@") != 1:
+        return False
+    local, domain = lower.split("@", 1)
+    if domain not in PERSONAL_EMAIL_DOMAINS:
+        return False
+    if len(local) < 2 or len(local) > 32:
+        return False
+    if local.startswith((".", "-")) or local.endswith((".", "-")):
+        return False
+    if re.fullmatch(r"[0-9]+", local):
+        return False
+    if any(part in GENERIC_EMAIL_LOCAL_PARTS for part in re.split(r"[._-]+", local)):
+        return False
+    if local in GENERIC_EMAIL_LOCAL_PARTS:
+        return False
+    return True
 
 
 def is_valid_email(email):
@@ -351,7 +389,7 @@ def is_valid_email(email):
                        ".tar", ".gz", ".exe", ".dll", ".bin")
     if domain.endswith(suspicious_exts):
         return False
-    return True
+    return looks_like_personal_email(email)
 
 
 def merge_categories(existing, new_category):
@@ -1530,25 +1568,18 @@ def build_queries(category="all"):
     q = []
 
     if category == "all":
-        add('"email" "@gmail.com" "contact" "CEO"', "Business")
-        add('"email" "@yahoo.com" "manager"', "Business")
-        add('"resume" "@gmail.com" "experience"', "Business")
-        add('"portfolio" "@gmail.com" "designer"', "Business")
-        for p in ("linkedin.com/in", "linkedin.com/company", "crunchbase.com",
-                  "angel.co", "github.com", "about.me", "behance.net",
-                  "dribbble.com", "medium.com", "wordpress.com",
-                  "blogspot.com", "gravatar.com"):
-            add(f'site:{p} "email" "@gmail.com" "CEO"')
-            add(f'site:{p} "email" "@" "contact" "founder"')
-            add(f'site:{p} "email" "@" "director"')
-            add(f'site:{p} "email" "@gmail.com" "manager"')
-        add('site:linkedin.com/in "email" "@gmail.com" "VP"')
-        add('site:linkedin.com/in "email" "@" "president"')
-        add('site:crunchbase.com/organization "email" "@" "CEO"')
-        add('site:github.com "email" "@gmail.com" "senior"')
-        add('site:github.com "email" "@gmail.com" "engineer"')
-        add('site:about.me "email" "@gmail.com" "founder"')
-        add('site:about.me "email" "@gmail.com" "director"')
+        add('site:github.com "email" "@gmail.com"', "Personal")
+        add('site:linkedin.com/in "email" "@gmail.com"', "Personal")
+        add('site:reddit.com "email" "@gmail.com"', "Personal")
+        add('site:quora.com "email" "@gmail.com"', "Personal")
+        add('site:medium.com "email" "@gmail.com"', "Personal")
+        add('"student" "@gmail.com" "resume"', "Student")
+        add('"developer" "@gmail.com" "portfolio"', "Developer")
+        add('"gamer" "@gmail.com" "steam"', "Gamer")
+        add('"freelancer" "@gmail.com" "upwork"', "Freelancer")
+        add('"student" "@yahoo.com" "college"', "Student")
+        add('"developer" "@outlook.com" "github"', "Developer")
+        add('"gamer" "@protonmail.com" "discord"', "Gamer")
 
     if category in ("all", "gaming"):
         for term in CATEGORY_TERMS["gaming"]:
