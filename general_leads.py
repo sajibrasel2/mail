@@ -211,7 +211,7 @@ CRUNCHBASE_CATEGORY_KEYWORDS = {
 
 MX_CACHE = {}
 
-THREADS = 30
+THREADS = 10
 RESULTS_PER_QUERY = 25
 SAVE_BATCH = 1000
 BACKUP_BATCH = 1000
@@ -223,6 +223,7 @@ DELAY_MAX = 16
 SEARCH_DELAY_MIN = 5
 SEARCH_DELAY_MAX = 10
 MAX_RETRIES = 5
+SEARCH_RETRY_ATTEMPTS = 3
 DDG_RETRIES = 3
 DDG_RETRY_DELAY = 3
 DDG_SEARCH_TIMEOUT = 30
@@ -1010,12 +1011,12 @@ def _get_url(url, allow_redirects=True, timeout=None, log_prefix=None, user_agen
             if log_prefix:
                 logging.warning("%s request timed out: %s attempt=%d/%d", log_prefix, url, attempt, MAX_RETRIES)
             if attempt < MAX_RETRIES:
-                time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
+                time.sleep(random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX))
         except Exception as exc:
             if log_prefix:
                 logging.debug("%s request failed: %s attempt=%d/%d error=%s", log_prefix, url, attempt, MAX_RETRIES, exc)
             if attempt < MAX_RETRIES:
-                time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
+                time.sleep(random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX))
     return None
 
 
@@ -1386,12 +1387,31 @@ def search_baidu(query, max_results=RESULTS_PER_QUERY):
     return urls[:max_results]
 
 
+def _search_with_retry(engine_func, query, max_results, engine_name):
+    last_error = None
+    for attempt in range(1, SEARCH_RETRY_ATTEMPTS + 1):
+        try:
+            found = engine_func(query, max_results=max_results)
+            if found:
+                return found
+            last_error = "empty result"
+        except Exception as exc:
+            last_error = exc
+            logging.warning("[search_all_engines] %s attempt %d/%d failed for query=%r: %s", engine_name, attempt, SEARCH_RETRY_ATTEMPTS, query, exc)
+        if attempt < SEARCH_RETRY_ATTEMPTS:
+            delay = min(30, SEARCH_DELAY_MIN * (2 ** (attempt - 1)) + random.uniform(0, 2))
+            time.sleep(delay)
+    if last_error is not None:
+        logging.warning("[search_all_engines] %s exhausted retries for query=%r", engine_name, query)
+    return []
+
+
 def search_all_engines(query, max_results=RESULTS_PER_QUERY, engine="all"):
     urls = set()
     
-    # Establish priority search order: DuckDuckGo -> Bing -> Google
+    # Establish priority search order: Bing -> DuckDuckGo -> Google
     if engine == "bing":
-        order = [search_duckduckgo, search_bing]
+        order = [search_bing, search_duckduckgo]
         if google_search:
             order.append(search_google)
     elif engine == "duckduckgo":
@@ -1399,7 +1419,7 @@ def search_all_engines(query, max_results=RESULTS_PER_QUERY, engine="all"):
     elif engine == "google":
         order = [search_google] if google_search else []
     else:  # "all" or any other value
-        order = [search_duckduckgo, search_bing]
+        order = [search_bing, search_duckduckgo]
         if google_search:
             order.append(search_google)
         extra_engines = [search_yahoo, search_yandex, search_qwant, search_startpage]
@@ -1416,7 +1436,7 @@ def search_all_engines(query, max_results=RESULTS_PER_QUERY, engine="all"):
         logging.info("[search_all_engines] trying engine %s for query=%r", engine_name, query)
         start_time = time.time()
         try:
-            found = engine_func(query, max_results=max_results)
+            found = _search_with_retry(engine_func, query, max_results, engine_name)
             elapsed = time.time() - start_time
             logging.info("[search_all_engines] engine %s returned %d URLs for query=%r in %.2fs", engine_name, len(found), query, elapsed)
             if found:
@@ -1429,7 +1449,7 @@ def search_all_engines(query, max_results=RESULTS_PER_QUERY, engine="all"):
             elapsed = time.time() - start_time
             SEARCH_ENGINE_FAILURES[engine_name] = SEARCH_ENGINE_FAILURES.get(engine_name, 0) + 1
             logging.debug("[search_all_engines] engine %s failed for query=%r after %.2fs: %s", engine_name, query, elapsed, exc)
-        time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
+        time.sleep(random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX))
         
     # If no results were found from priority engines, and we are using "all", try extra engines
     if not results_found and engine == "all":
@@ -1443,7 +1463,7 @@ def search_all_engines(query, max_results=RESULTS_PER_QUERY, engine="all"):
             logging.info("[search_all_engines] trying fallback engine %s for query=%r", engine_name, query)
             start_time = time.time()
             try:
-                found = engine_func(query, max_results=max_results)
+                found = _search_with_retry(engine_func, query, max_results, engine_name)
                 elapsed = time.time() - start_time
                 logging.info("[search_all_engines] fallback engine %s returned %d URLs for query=%r in %.2fs", engine_name, len(found), query, elapsed)
                 if found:
@@ -1455,7 +1475,7 @@ def search_all_engines(query, max_results=RESULTS_PER_QUERY, engine="all"):
                 elapsed = time.time() - start_time
                 SEARCH_ENGINE_FAILURES[engine_name] = SEARCH_ENGINE_FAILURES.get(engine_name, 0) + 1
                 logging.debug("[search_all_engines] fallback engine %s failed for query=%r after %.2fs: %s", engine_name, query, elapsed, exc)
-            time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
+            time.sleep(random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX))
             
     return list(urls)[: max_results * 3]
 
@@ -1818,17 +1838,9 @@ class Collector:
         query, category = query_pair
         local = set()
         try:
-            results = ddg(query, max_results=RESULTS_PER_QUERY)
-            urls = []
-            for r in (results or []):
-                url = r.get("href") or r.get("url") or r.get("link") or ""
-                if url and not any(s in url for s in [
-                    "facebook.com", "instagram.com", "twitter.com", "x.com",
-                    "youtube.com", "tiktok.com", "pinterest.com",
-                ]):
-                    urls.append(url)
+            urls = search_all_engines(query, max_results=RESULTS_PER_QUERY, engine="bing")
             for url in urls:
-                time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
+                time.sleep(random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX))
                 emails = scrape_site(url)
                 local.update((email, category) for email in emails)
         except Exception:
