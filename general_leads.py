@@ -231,6 +231,8 @@ COLLECTION_TIMEOUT = 600  # 10 min timeout per collection phase
 
 SEARCH_ENGINE_FAILURES = {}
 SEARCH_ENGINE_FAILURE_LIMIT = 2
+EMAIL_DEBUG_ENABLED = True
+EMAIL_DEBUG_COUNT = 0
 
 
 def run_with_timeout(func, args=(), kwargs=None, timeout_sec=COLLECTION_TIMEOUT):
@@ -350,46 +352,48 @@ def is_fake_email(email):
     return domain in TEMP_DOMAINS
 
 
-def looks_like_personal_email(email):
+def looks_like_personal_email(email, debug=False):
     lower = email.lower().strip()
     if "@" not in lower or lower.count("@") != 1:
-        return False
+        return False, "missing_or_multiple_at_symbols"
     local, domain = lower.split("@", 1)
     if domain not in PERSONAL_EMAIL_DOMAINS:
-        return False
+        if debug:
+            logging.info("[email-debug] rejected %s reason=domain_not_in_personal_domains domain=%s", email, domain)
+        return False, "domain_not_in_personal_domains"
     if len(local) < 2 or len(local) > 32:
-        return False
+        return False, "local_part_length"
     if local.startswith((".", "-")) or local.endswith((".", "-")):
-        return False
+        return False, "local_part_boundary"
     if re.fullmatch(r"[0-9]+", local):
-        return False
+        return False, "numeric_local_part"
     if any(part in GENERIC_EMAIL_LOCAL_PARTS for part in re.split(r"[._-]+", local)):
-        return False
+        return False, "generic_local_part"
     if local in GENERIC_EMAIL_LOCAL_PARTS:
-        return False
-    return True
+        return False, "generic_local_part"
+    return True, "ok"
 
 
-def is_valid_email(email):
+def is_valid_email(email, debug=False):
     if is_fake_email(email):
-        return False
+        return False, "temp_or_fake_domain"
     lower = email.lower().strip()
     if "@" not in lower or lower.count("@") != 1:
-        return False
+        return False, "missing_or_multiple_at_symbols"
     local, domain = lower.split("@")
     if len(local) < 1 or len(local) > 64 or len(domain) < 3 or len(domain) > 255:
-        return False
+        return False, "local_or_domain_length"
     if domain.count(".") < 1:
-        return False
+        return False, "missing_dot_in_domain"
     tld = domain.split(".")[-1]
     if len(tld) < 2:
-        return False
+        return False, "invalid_tld"
     suspicious_exts = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp",
                        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".zip",
                        ".tar", ".gz", ".exe", ".dll", ".bin")
     if domain.endswith(suspicious_exts):
-        return False
-    return looks_like_personal_email(email)
+        return False, "suspicious_file_extension"
+    return looks_like_personal_email(email, debug=debug)
 
 
 def merge_categories(existing, new_category):
@@ -1016,28 +1020,61 @@ def _soup(url):
     return BeautifulSoup(resp.text, "lxml")
 
 
-def _emails_from_soup(soup):
-    found = set()
-    for tag in soup(["script", "style", "nav", "footer", "header"]):
-        tag.decompose()
-    text = soup.get_text(separator=" ")
-    found.update(_extract_emails_from_text(text))
-    for a in soup.find_all("a", href=True):
-        h = a["href"].strip()
-        if h.startswith("mailto:"):
-            raw = h[7:].split("?")[0].strip()
-            found.update(_extract_emails_from_text(raw))
-    return found
-
-
-def _extract_emails_from_text(text):
+def _extract_emails_from_text(text, source_name="text", debug=False):
+    # Debug logging for scraper email extraction and rejection reasons.
     found = set()
     if not text:
         return found
+    if debug:
+        snippet = text[:1500].replace("\n", " ").replace("\r", " ")
+        logging.info("[email-debug] source=%s snippet=%s", source_name, snippet)
+    rejected_count = 0
     for m in re.finditer(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", text):
         e = m.group().lower().strip()
-        if len(e) < 100 and is_valid_email(e):
-            found.add(e)
+        if debug:
+            logging.info("[email-debug] regex candidate=%s from %s", e, source_name)
+        if len(e) < 100:
+            valid, reason = is_valid_email(e, debug=debug)
+            if valid:
+                found.add(e)
+            elif debug:
+                rejected_count += 1
+                logging.info("[email-debug] rejected candidate=%s from %s reason=%s", e, source_name, reason)
+    if debug:
+        logging.info("[email-debug] summary source=%s accepted=%d rejected=%d", source_name, len(found), rejected_count)
+    return found
+
+
+def _collect_email_candidates(soup, debug=False):
+    candidates = []
+    visible_text = soup.get_text(separator="\n", strip=True)
+    if visible_text:
+        candidates.append(("visible_text", visible_text))
+    html_source = str(soup)
+    if html_source:
+        candidates.append(("html_source", html_source))
+
+    for tag in soup.find_all(True):
+        for attr_name in ("href", "src", "content", "title", "alt", "placeholder", "data-email", "value", "aria-label"):
+            value = tag.get(attr_name)
+            if isinstance(value, str) and value.strip():
+                candidates.append((f"{tag.name}:{attr_name}", value.strip()))
+        if tag.name == "a":
+            href = tag.get("href", "")
+            if isinstance(href, str) and href.startswith("mailto:"):
+                candidates.append(("mailto", href[7:].split("?", 1)[0].strip()))
+    return candidates
+
+
+def _emails_from_soup(soup, debug=None):
+    found = set()
+    if debug is None:
+        debug = EMAIL_DEBUG_ENABLED
+    for tag in soup(["script", "style", "nav", "footer", "header"]):
+        tag.decompose()
+    candidates = _collect_email_candidates(soup, debug=debug)
+    for source_name, text in candidates:
+        found.update(_extract_emails_from_text(text, source_name=source_name, debug=debug))
     return found
 
 
@@ -1131,7 +1168,34 @@ def _parse_file_bytes(content, url):
     return found
 
 
+def _deep_urls(soup, base_url):
+    urls = set()
+    if not base_url:
+        return urls
+    parsed = urlparse(base_url)
+    root = f"{parsed.scheme}://{parsed.netloc}"
+    for a in soup.find_all("a", href=True):
+        href = a.get("href", "").strip()
+        if not href or href.startswith("javascript:") or href.startswith("mailto:"):
+            continue
+        try:
+            full = urljoin(base_url, href)
+        except Exception:
+            continue
+        if not full.startswith("http"):
+            continue
+        parsed_full = urlparse(full)
+        if parsed_full.netloc != parsed.netloc:
+            continue
+        if parsed_full.path in {"", "/"}:
+            continue
+        if any(part in parsed_full.path.lower() for part in ("/contact", "/about", "/team", "/people", "/profile", "/blog", "/jobs", "/careers")):
+            urls.add(full)
+    return list(urls)[:10]
+
+
 def _emails_from_url(url):
+    global EMAIL_DEBUG_COUNT
     url = url.strip()
     if not url or not url.startswith("http"):
         return set()
@@ -1142,10 +1206,16 @@ def _emails_from_url(url):
         return emails
     try:
         soup = _soup(url)
-        emails = _emails_from_soup(soup)
+        if EMAIL_DEBUG_ENABLED and EMAIL_DEBUG_COUNT < 3:
+            html_snippet = str(soup)[:3000]
+            logging.info("[email-debug] URL=%s HTML sample=%s", url[:250], html_snippet)
+            EMAIL_DEBUG_COUNT += 1
+        emails = _emails_from_soup(soup, debug=EMAIL_DEBUG_ENABLED)
         if url.endswith(".xml") or url.endswith(".rss"):
             emails.update(_extract_emails_from_text(soup.get_text(separator=" ")))
         logging.info("_emails_from_url: extracted %d emails from %s", len(emails), url[:200])
+        if not emails:
+            logging.warning("[email-debug] no emails found for %s; visible text sample=%s", url[:250], soup.get_text(separator=" ")[:2000])
         return emails
     except Exception as exc:
         logging.debug("_emails_from_url: failed for %s: %s", url[:200], exc)
